@@ -85,10 +85,15 @@ def _SessionInitialScope(session, scope):
     return session.NewCurrentScope(scope)
 
 
+# 编译job func
 def _CompileJob(function_desc):
     func = function_desc.job_func
+    # inspect从job_func获取的signature
     parameters = func.__oneflow_function_signature__.parameters
+    # 给job_fuc增加了__oneflow_input_blob_defs__
+    # 根据job_func的输入参数列宾创建的input blob defs
     if len(parameters) == 0:
+        # job_func无参数
         func.__oneflow_input_blob_defs__ = ()
     elif all(p.annotation is inspect._empty for _, p in parameters.items()):
         func.__oneflow_input_blob_defs__ = _GetArgDefault(func)
@@ -100,10 +105,15 @@ def _CompileJob(function_desc):
         raise NotImplementedError(
             "All parameters of global function should be annotated"
         )
+    # 根据input_blob_defs创建input blobs
     inputs = _RecursiveMakeInputBlobs(func.__oneflow_input_blob_defs__)
+    # 调用job_func，输入inputs blobs，返回loss blob
+    # 构建了graph
     ret = func(*inputs)
+
     return_annotation = func.__oneflow_function_signature__.return_annotation
     oft_util.CheckReturnByAnnotation(func.__name__, ret, return_annotation)
+    # 创建job_func返回blob,记录在out_put_remote_blobs
     func.__oneflow_output_remote_blobs__ = _RecursiveMakeRetRemoteBlobs(
         ret, allow_cpu_return_op=function_desc.function_attribute.allow_cpu_return_op
     )

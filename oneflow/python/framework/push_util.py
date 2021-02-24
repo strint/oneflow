@@ -32,8 +32,12 @@ from functools import reduce
 
 
 def AsyncPush(session, job_func, *arg):
+    # check arg 数量和input_blob_defs数量
+    # 按position push arg
     assert len(arg) == len(job_func.__oneflow_input_blob_defs__)
     for i in range(len(arg)):
+        # push arg
+        # 可以看到，是按位置对应上的
         _AsyncPushArg(session, job_func.__oneflow_input_blob_defs__[i], arg[i])
 
 

@@ -911,6 +911,7 @@ Maybe<void> CompileAndMergePlanOnMaster(const PbRpf<Job>& conf_jobs, Plan* plan)
     if (job_desc.Bool("__is_user_function__")) { function_jobs.push_back(jobs.at(i)); }
   }
   if (Global<MachineCtx>::Get()->IsThisMachineMaster()) {
+    // 根据kInputConf过滤出push op
     HashMap<std::string, ParallelBlobConf> push_op_name2parallel_blob_conf;
     FilterOpName2ParallelBlobConf({OperatorConf::kInputConf}, function_jobs,
                                   &push_op_name2parallel_blob_conf);
@@ -918,6 +919,7 @@ Maybe<void> CompileAndMergePlanOnMaster(const PbRpf<Job>& conf_jobs, Plan* plan)
     FilterOpName2ParallelBlobConf({OperatorConf::kReturnConf}, function_jobs,
                                   &pull_op_name2parallel_blob_conf);
     for (const auto& pair : push_op_name2parallel_blob_conf) {
+      // 创建push job，让python numpy给user job提供数据
       auto push_job = std::make_shared<Job>();
       MakePushJob(std::string("System-Push-") + pair.first, pair.first, pair.second,
                   push_job.get());
