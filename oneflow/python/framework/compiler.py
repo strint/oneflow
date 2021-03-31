@@ -82,11 +82,15 @@ def InterpretScope(session, function_desc, config_proto):
     scope = scope_util.MakeInitialScope(
         job_conf, *tag_and_dev_ids, hierarchy, is_mirrored
     )
+    # s_note: 这里利用yield构造了一个contextmanager
     with _JobBuildAndInferCtx(job_conf.job_name()), distribute_strategy:
         c_api_util.CurJobBuildAndInferCtx_SetJobConf(job_conf)
+        # s_note: 设置了当前mode为GLOBAL_MODE，表示进入了一个global_funciton
         with runtime_mode.ModeScope(runtime_mode.GLOBAL_MODE):
             with scope_util.ScopeContext(scope):
+                # s_note: InterpretScope的with会执行到这里然后yield，这里就建立了三个with context
                 yield
+                # s_note: InterpretScope结束时，接着执行这里，这样就依次释放掉三个with context
 
 
 def _SessionInitialScope(session, scope):
