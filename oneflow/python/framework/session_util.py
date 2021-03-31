@@ -212,7 +212,7 @@ class Session(object):
         c_api_util.InitGlobalSession(self.config_proto)
         if not c_api_util.EagerExecutionEnabled():
             for job_name, func_desc in self.job_name2function_desc_.items():
-                # 编译每个job_fuc
+                # s_note: 编译每个job_fuc
                 compiler.Compile(self, func_desc, self.config_proto)
                 self.existed_module_names_ = set()
             self.job_name2var_name2var_blob_ = dict()
@@ -254,11 +254,11 @@ class Session(object):
         blob_register_util.GetDefaultBlobRegister().ForceReleaseAll()
         self.backward_blob_register_.ForceReleaseAll()
 
-    # job func实际执行
-    # arg中包含了输入的numpy数据
+    # s_note: job func实际执行
+    #         arg中包含了输入的numpy数据
     def LazyRun(self, job_func, *arg):
         assert self.status_ is SessionStatus.RUNNING
-        # 调用了 LaunchUserJob
+        # s_note: 调用了 LaunchUserJob
         remote_blobs = self.LaunchUserJob(job_func, *arg)
         if remote_blobs is None:
             return
@@ -281,18 +281,18 @@ class Session(object):
     def LaunchUserJob(self, job_func, *arg):
         assert self.status_ is SessionStatus.RUNNING
         job_name = job_func.__name__
-        # 会调用push，发送arg
+        # s_note: 会为numpy输入调用push，发送numpy arg
         push_util.AsyncPush(self, job_func, *arg)
-        # 调用launch
+        # s_note: 调用launch运行job
         self.LaunchJob(job_instance_util.MakeUserJobInstance(job_name))
         return job_func.__oneflow_output_remote_blobs__
 
     def LaunchJob(self, job_instance):
         assert self.status_ is SessionStatus.RUNNING
         self._IncRunningJobCnt()
-        # 给 job_instance 注册一个callback
+        # s_note: 给 job_instance 注册一个callback
         job_instance.AddPostFinishCallback(lambda _: self._DecRunningJobCnt())
-        # 调用c++ runtime执行job
+        # s_note: 调用c++ runtime执行job
         c_api_util.LaunchJob(job_instance)
 
     def AsyncPush(self, op_name, push_data_cb):

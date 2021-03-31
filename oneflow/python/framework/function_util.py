@@ -149,19 +149,20 @@ def lazy_oneflow_function(function_config=FunctionConfig()):
 
     def Decorator(job_func):
         if not hasattr(job_func, "__oneflow_function_signature__"):
-            # 获取job_func的signature，用于后面构建job的numpy输入需要的push job和user job需要的输入blob
+            # s_note: 获取job_func的signature，用于后面构建job的numpy输入需要的push job和user job需要的输入blob
             job_func.__oneflow_function_signature__ = inspect.signature(job_func)
         oft_util.CheckGlobalFunctionAnnotation(job_func.__oneflow_function_signature__)
         sess = session_ctx.GetDefaultSession()
 
-        # wraps是的Func继承job_func的所有属性
+        # s_note: wraps作用是的Func继承job_func的所有属性
         @functools.wraps(job_func)
         def Func(*args, **kwargs):
-            # job_func被调用时真实调用的是_RunLazyJob
+            # s_note: job_func被调用时真实调用的是_RunLazyJob
             return _RunLazyJob(sess, job_func, *args, **kwargs)
 
-        # 把job_func对应的FunctionDesc添加到session
+        # s_note: 把job_func对应的FunctionDesc添加到session
         sess.AddJob(_CloneFunctionDesc(function_config.function_desc, job_func))
+        # s_note: 列出job_func的所有attr name 或者 method name
         for x in dir(job_func):
             if x.startswith("__oneflow_"):
                 setattr(Func, x, getattr(job_func, x))
