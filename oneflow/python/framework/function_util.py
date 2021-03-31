@@ -235,7 +235,9 @@ def _RunEagerJob(session, function_desc, *args):
 
 
 def _RunLazyJob(session, job_func, *args, **kwargs):
-    # session会尝试init一下，然后运行job
+    # s_note: session (如果没有init过, 会尝试init一下) 然后运行job
+    #         这里lazy模式下，用户第一次调用一个job_func时，开始进行session的初始化，后面就不能再初始化job了，导致新增job成为问题
+    #         init会做JobBuildAndInferCtx，把job在后台注册和创建好，然后把逻辑图构建好、并做了逻辑图优化
     return session.TryInit().LazyRun(job_func, *args, **kwargs)
 
 

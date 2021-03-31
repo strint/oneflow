@@ -164,7 +164,7 @@ class Session(object):
         self.scope_attr_name2default_val_ = {k: v.default_val for k, v in items}
 
     def TryInit(self):
-        # 第一次run job时，会做session的init()
+        # s_note: 第一次run job时，会做session的init()
         if self.status_ is SessionStatus.OPEN:
             self.Init()
         return self
@@ -198,11 +198,16 @@ class Session(object):
         if not oneflow_api.EagerExecutionEnabled():
             c_api_util.InitLazyGlobalSession(self.config_proto)
             for job_name, func_desc in self.job_name2function_desc_.items():
-                # s_note: 编译每个job_fuc
+                # s_note: lazy状态，编译每个job_fuc
+                #         注册并创建了job，维护在JobBuildAndInferCtx中
+                #         里面构建了逻辑图，并优化了逻辑图
                 compiler.Compile(self, func_desc, self.config_proto)
                 self.existed_module_names_ = set()
             self.job_name2var_name2var_blob_ = dict()
             assert len(self.job_name2function_desc_.items()) > 0
+            # s_note: 启动lazy的后台GlobalSession
+            #         如果是master，发送所有job_set到控制网络；创建oneflow后台并初始化之；
+            #         Oneflow::Init(job_set)会在master编译和merge Plan，并根据plan创建runtime；
             oneflow_api.StartLazyGlobalSession()
             self.inter_user_job_info_ = c_api_util.GetInterUserJobInfo()
             # Get latest op_attr and job_name after compiler.Compile
@@ -210,6 +215,8 @@ class Session(object):
             if not config_util.api_legacy_model_io_enabled():
                 check_point_v2.Init()
         else:
+            # s_note: eager下，没有编译
+            # s_quest: 看起来当前实现，一个session下，只能是eager和lazy二选一模式
             self.eager_config_proto_ctx_ = oneflow_api.LogicalConfigProtoContext(
                 str(self.config_proto)
             )

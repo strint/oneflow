@@ -54,7 +54,9 @@ logged_op_confs = set({})
 
 def CurJobAddOp(op_conf, scope_symbol=None):
     if distribute_ctx.IsMirroredStrategyEnabled():
+        # s_note: 添加mirror op
         return CurJobAddMirroredOp(op_conf, scope_symbol)
+    # s_note: 添加consistent op
     return CurJobAddConsistentOp(op_conf, scope_symbol)
 
 
@@ -63,9 +65,11 @@ def CurJobAddConsistentOp(op_conf, scope_symbol=None):
         scope_symbol = oneflow.current_scope()
     op_conf.scope_symbol_id = scope_symbol.symbol_id
     if not op_conf.HasField("device_tag"):
+        # s_note: 从当前scope中获取device_tag 给 op
         device_tag = scope_symbol.device_parallel_desc_symbol.device_tag
         op_conf.device_tag = device_tag
     op_attr = c_api_util.CurJobBuildAndInferCtx_AddAndInferConsistentOp(op_conf)
+    # s_quest: 什么是InterfaceOp
     if c_api_util.IsInterfaceOpConf(op_conf):
         sess = session_ctx.GetDefaultSession()
         sess.AddInfo4InterfaceOpName(op_conf.name, op_attr)

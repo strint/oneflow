@@ -569,6 +569,7 @@ Maybe<OpAttribute> JobBuildAndInferCtx::AddAndInferOp(const OperatorConf& op_con
   CHECK_NE_OR_RETURN(op_conf.device_tag(), "invalid_device")
       << Error::OpConfDeviceTagNoSetError() << "op_name: " << op_name << " not set device tag";
 
+  // s_note: 构建了Operator
   op_name2op_.emplace(op_name, ConstructOp(op_conf));
   Operator* op = op_name2op_.at(op_name).get();
 
@@ -949,6 +950,7 @@ Maybe<LogicalBlobId> EagerJobBuildAndInferCtx::FindOrCreateMirroredLbiFromCompat
   return mirrored_lbi;
 }
 
+// s_note: 在一个job创建完成后，进行图逻辑图优化
 Maybe<void> LazyJobBuildAndInferCtx::Complete() {
   CHECK_NOTNULL(Global<JobDesc>::Get());
   Global<JobDesc>::Delete();
@@ -988,6 +990,7 @@ Maybe<void> LazyJobBuildAndInferCtx::Complete() {
   return Maybe<void>::Ok();
 }
 
+// s_note: 在一个job创建完成后，进行图优化
 Maybe<void> EagerJobBuildAndInferCtx::Complete() {
   CHECK_NOTNULL(Global<JobDesc>::Get());
   Global<JobDesc>::Delete();

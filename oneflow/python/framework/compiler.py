@@ -41,14 +41,20 @@ import inspect
 
 
 def Compile(session, function_desc, config_proto):
+    # s_note: lazy使用的
+    #         一个新Job的创建
     with InterpretScope(session, function_desc, config_proto):
+        # s_note: 构建了job和逻辑图
         _CompileJob(session, function_desc)
+        # s_note: Complete中做了逻辑图优化
         oneflow_api.CurJobBuildAndInferCtx_Complete()
 
 
 def EagerRun(session, function_desc, config_proto, args):
+    # s_note: eager使用的
     with InterpretScope(session, function_desc, config_proto):
         ret = _InterpretGlobalFunction(function_desc, args)
+        # s_note: Complete中做了逻辑图优化
         oneflow_api.CurJobBuildAndInferCtx_Complete()
         session_ctx.GetDefaultSession().UpdateInfo4InterfaceOp()
     return ret
@@ -83,6 +89,7 @@ def InterpretScope(session, function_desc, config_proto):
         job_conf, *tag_and_dev_ids, hierarchy, is_mirrored
     )
     # s_note: 这里利用yield构造了一个contextmanager
+    # s_note: 打开了JobBuildAndInferCtx
     with _JobBuildAndInferCtx(job_conf.job_name()), distribute_strategy:
         c_api_util.CurJobBuildAndInferCtx_SetJobConf(job_conf)
         # s_note: 设置了当前mode为GLOBAL_MODE，表示进入了一个global_funciton
@@ -100,6 +107,8 @@ def _SessionInitialScope(session, scope):
 
 
 # s_note: 编译job func
+#         创建job输入输出的blob def
+#         运行func进行把operator创建和infer好，并加入到当前Job中
 def _CompileJob(session, function_desc):
     func = function_desc.job_func
     # s_note: inspect从job_func获取的signature
@@ -122,9 +131,8 @@ def _CompileJob(session, function_desc):
     # s_note: 根据input_blob_defs创建input blobs
     inputs = _RecursiveMakeInputBlobs(func.__oneflow_input_blob_defs__)
     # s_note: 调用job_func，输入inputs blobs，返回loss blob
-    #         构建了graph
-    # s_todo: (model_job)这里拿到Op Data Module构图的输出数据,
-    #         DataModule统一先运行一次，根据返回数据类型，放入func.__oneflow_input_blob_defs__，决定这块的运行方式
+    #         里面调用的是OpBuilder，创建了OperatorConf，然后用 InferAndTryRun 方法加入了当前的Job中
+    #         构建了logical graph
     ret = func(*inputs)
 
     return_annotation = func.__oneflow_function_signature__.return_annotation
@@ -162,10 +170,12 @@ def _InterpretGlobalFunction(function_desc, args):
 
 @contextmanager
 def _JobBuildAndInferCtx(job_name):
+    # s_note: 开启一个job的创建
     c_api_util.JobBuildAndInferCtx_Open(job_name)
     try:
         yield
     finally:
+        # s_note: 结束一个job的创建
         oneflow_api.JobBuildAndInferCtx_Close()
 
 
