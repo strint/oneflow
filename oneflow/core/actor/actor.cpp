@@ -14,9 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 #include "oneflow/core/actor/actor.h"
+#include "oneflow/core/control/global_process_ctx.h"
 #include "oneflow/core/thread/thread_manager.h"
 #include "oneflow/core/job/runtime_job_descs.h"
-#include "oneflow/core/job/machine_context.h"
+#include "oneflow/core/control/global_process_ctx.h"
 
 namespace oneflow {
 
@@ -36,16 +37,6 @@ void CheckInplaceRegstDescId(const TaskProto& task_proto) {
 
 }  // namespace
 
-bool IsFirstRegstInPieceWithOrder(const Regst* regst, ColIdOrder order) {
-  return (order == ColIdOrder::kAscending && regst->col_id() == 0)
-         || (order == ColIdOrder::kDescending && regst->IsMaxCol());
-}
-
-bool IsLastRegstInPieceWithOrder(const Regst* regst, ColIdOrder order) {
-  return (order == ColIdOrder::kAscending && regst->IsMaxCol())
-         || (order == ColIdOrder::kDescending && regst->col_id() == 0);
-}
-
 void Actor::Init(const JobDesc* job_desc, const TaskProto& task_proto,
                  const ThreadCtx& thread_ctx) {
   job_desc_ = job_desc;
@@ -58,7 +49,6 @@ void Actor::Init(const JobDesc* job_desc, const TaskProto& task_proto,
   for (const ExecNodeProto& node : task_proto.exec_sequence().exec_node()) {
     ExecKernel ek;
     ek.kernel = ConstructKernel(job_desc_, node.kernel_conf(), device_ctx_.get());
-    ek.bn_in_op2regst_desc_id = PbMap2HashMap(node.bn_in_op2regst_desc_id());
     exec_kernel_vec_.push_back(std::move(ek));
   }
 
@@ -105,6 +95,7 @@ void Actor::Init(const JobDesc* job_desc, const TaskProto& task_proto,
   is_naive_consumed_eord_ = false;
   TakeOverNaiveConsumed(task_proto.consumed_regst_desc_id());
   TakeOverNaiveProduced(task_proto.produced_regst_desc());
+  InitBnInOp2BlobInfo(task_proto);
   VirtualActorInit(task_proto);
 }
 
@@ -174,6 +165,43 @@ void Actor::TakeOverNaiveProduced(const PbMap<std::string, RegstDescProto>& prod
   }
 }
 
+void Actor::InitBnInOp2BlobInfo(const TaskProto& task_proto) {
+  for (int64_t i = 0; i < exec_kernel_vec_.size(); ++i) {
+    ExecKernel& ek = exec_kernel_vec_.at(i);
+    const ExecNodeProto& node = task_proto.exec_sequence().exec_node(i);
+    for (auto& pair : node.kernel_conf().op_attribute().arg_signature().bn_in_op2lbi()) {
+      BlobInfo blob_info;
+      blob_info.lbi = pair.second;
+      const std::string& bn = pair.first;
+      auto regst_desc_id_it = node.bn_in_op2regst_desc_id().find(bn);
+      if (regst_desc_id_it != node.bn_in_op2regst_desc_id().end()
+          && Global<RegstMgr>::Get()->HasRegstDescId(regst_desc_id_it->second)) {
+        const int64_t regst_desc_id = regst_desc_id_it->second;
+        blob_info.regst_desc_id = regst_desc_id;
+        const RtRegstDesc& regst_desc =
+            Global<RegstMgr>::Get()->RegstDesc4RegstDescId(regst_desc_id);
+        blob_info.ordinal = regst_desc.GetOrdinalForLbi(blob_info.lbi);
+        if (naive_produced_rs_.HasRegstDescId(regst_desc_id)) {
+          blob_info.rs = &naive_produced_rs_;
+        } else if (inplace_produced_rs_.HasRegstDescId(regst_desc_id)) {
+          blob_info.rs = &inplace_produced_rs_;
+        } else if (naive_consumed_rs_.HasRegstDescId(regst_desc_id)) {
+          blob_info.rs = &naive_consumed_rs_;
+        } else if (inplace_consumed_rs_.HasRegstDescId(regst_desc_id)) {
+          blob_info.rs = &inplace_consumed_rs_;
+        } else {
+          blob_info.rs = nullptr;
+        }
+      } else {
+        blob_info.regst_desc_id = -1;
+        blob_info.ordinal = -1;
+        blob_info.rs = nullptr;
+      }
+      ek.bn_in_op2blob_info.emplace(bn, std::move(blob_info));
+    }
+  }
+}
+
 void Actor::ForEachProducedRegst(const std::function<void(Regst*)>& Handler) const {
   for (const auto& pair : produced_regsts_) {
     for (const auto& regst : pair.second) { Handler(regst.get()); }
@@ -209,9 +237,13 @@ int64_t Actor::GetPieceId4NaiveCurReadableDataRegst() const {
   int64_t init_val = -2;
   int64_t pid = init_val;
   auto FirstFoundOnly = [&pid, init_val](int64_t) { return pid == init_val; };
-  naive_consumed_rs_.ForChosenFrontRegst(FirstFoundOnly, [&pid](Regst* regst) {
-    if (regst->regst_desc()->regst_desc_type().has_data_regst_desc()) { pid = regst->piece_id(); }
-  });
+  naive_consumed_rs_.ForChosenFrontRegst(
+      FirstFoundOnly, [&pid](int64_t regst_desc_id, Regst* regst) {
+        if (Global<RegstMgr>::Get()->HasProducerTaskId4RegstDescId(regst_desc_id)) { return; }
+        if (regst->regst_desc()->regst_desc_type().has_data_regst_desc()) {
+          pid = regst->piece_id();
+        }
+      });
   CHECK_GE(pid, 0);
   return pid;
 }
@@ -220,7 +252,8 @@ int64_t Actor::GetPieceId4NaiveOrInplaceCurReadableDataRegst() const {
   int64_t init_val = -2;
   int64_t pid = init_val;
   auto FirstFoundOnly = [&pid, init_val](int64_t) { return pid == init_val; };
-  auto Select = [&pid](Regst* regst) {
+  auto Select = [&pid](int64_t regst_desc_id, Regst* regst) {
+    if (Global<RegstMgr>::Get()->HasProducerTaskId4RegstDescId(regst_desc_id)) { return; }
     if (regst->regst_desc()->regst_desc_type().has_data_regst_desc()) { pid = regst->piece_id(); }
   };
   naive_consumed_rs_.ForChosenFrontRegst(FirstFoundOnly, Select);
@@ -230,23 +263,8 @@ int64_t Actor::GetPieceId4NaiveOrInplaceCurReadableDataRegst() const {
 }
 
 void Actor::InitDeviceCtx(const ThreadCtx& thread_ctx) {
-  switch (GetDeviceType()) {
-    case DeviceType::kCPU: {
-      CHECK_EQ(GetLocalWorkStreamId(), 0);
-      device_ctx_.reset(new CpuDeviceCtx());
-      break;
-    }
-#ifdef WITH_CUDA
-    case DeviceType::kGPU: {
-      CudaStreamHandle* cuda_handle = nullptr;
-      CHECK_EQ(GetLocalWorkStreamId(), 0);
-      cuda_handle = thread_ctx.g_cuda_stream.get();
-      device_ctx_.reset(new CudaDeviceCtx(cuda_handle));
-      break;
-    }
-#endif
-    default: { UNIMPLEMENTED(); }
-  }
+  DeviceCtx* dev_ctx = NewObj<int, DeviceCtx, const ThreadCtx&>(GetDeviceType(), thread_ctx);
+  device_ctx_.reset(dev_ctx);
 }
 
 KernelCtx Actor::GenDefaultKernelCtx() const {
@@ -261,7 +279,8 @@ void Actor::SetReadableRegstInfo(const Regst* regst, ReadableRegstInfo* info) co
 }
 
 void Actor::ForEachCurNaiveReadableDataRegst(std::function<void(const Regst*)> func) const {
-  naive_consumed_rs_.ForEachFrontRegst([func](Regst* regst) {
+  naive_consumed_rs_.ForEachFrontRegst([func](int64_t regst_desc_id, Regst* regst) {
+    if (Global<RegstMgr>::Get()->HasProducerTaskId4RegstDescId(regst_desc_id)) { return; }
     if (regst->regst_desc()->regst_desc_type().has_data_regst_desc()) { func(regst); }
   });
 }
@@ -282,7 +301,7 @@ int Actor::HandlerNormal(const ActorMsg& msg) {
       NormalProcessCustomizedEordMsg(msg);
     }
   } else if (msg.msg_type() == ActorMsgType::kRegstMsg) {
-    if (msg.SrcMachineId() == Global<MachineCtx>::Get()->this_machine_id()) {
+    if (msg.SrcMachineId() == GlobalProcessCtx::Rank()) {
       Regst* regst = msg.regst();
       if (naive_consumed_rs_.HasRegstDescId(regst->regst_desc_id())) {
         CHECK_EQ(0, naive_consumed_rs_.TryPushBackRegst(regst));
@@ -294,8 +313,8 @@ int Actor::HandlerNormal(const ActorMsg& msg) {
       } else if (inplace_consumed_rs_.HasRegstDescId(regst->regst_desc_id())) {
         CHECK_EQ(0, inplace_consumed_rs_.TryPushBackRegst(regst));
         int64_t out_regst_desc_id = inplace_regst_desc_id_in2out_.at(regst->regst_desc_id());
-        CHECK(regst->packed_blob()->dptr()
-              == inplace_produced_rs_.Front(out_regst_desc_id)->packed_blob()->dptr());
+        CHECK(regst->GetSoleBlob()->dptr()
+              == inplace_produced_rs_.Front(out_regst_desc_id)->GetSoleBlob()->dptr());
       } else if (TryUpdtStateAsProducedRegst(regst) == 0) {
         // do nothing
       } else {
@@ -303,7 +322,17 @@ int Actor::HandlerNormal(const ActorMsg& msg) {
       }
     } else {
       if (NormalTryProcessReadableMsgFromOtherMachine(msg) == false) {
-        CHECK_EQ(TryUpdtStateAsProducedRegst(msg.regst()), 0);
+        // process ctrl msg from other rank
+        if (IsConsumedCtrlRegstDescId(msg.regst_desc_id())) {
+          Regst* regst = msg.regst();
+          CHECK(naive_consumed_rs_.HasRegstDescId(msg.regst_desc_id()));
+          CHECK(Global<RegstMgr>::Get()->HasProducerTaskId4RegstDescId(msg.regst_desc_id()));
+          CHECK_EQ(0, naive_consumed_rs_.TryPushBackRegst(regst, msg.regst_desc_id()));
+          const auto& rdeq = naive_consumed_rs_.RegstDeq4RegstDescId(msg.regst_desc_id());
+          CHECK(rdeq.empty() == false);
+        } else {
+          CHECK_EQ(TryUpdtStateAsProducedRegst(msg.regst()), 0);
+        }
       }
     }
     ActUntilFail();
@@ -361,7 +390,8 @@ void Actor::TryLogActEvent(const std::function<void()>& DoAct) const {
     act_event->set_work_stream_id(GetGlobalWorkStreamId());
     act_event->set_act_id(act_id_);
     act_event->set_ready_time(GetCurTime());
-    naive_consumed_rs_.ForEachFrontRegst([&](const Regst* readable_regst) {
+    naive_consumed_rs_.ForEachFrontRegst([&](int64_t regst_desc_id, const Regst* readable_regst) {
+      if (Global<RegstMgr>::Get()->HasProducerTaskId4RegstDescId(regst_desc_id)) { return; }
       ReadableRegstInfo* info = act_event->add_readable_regst_infos();
       Actor::SetReadableRegstInfo(readable_regst, info);
     });
@@ -452,22 +482,16 @@ void Actor::AsyncSendConsumedCtrlRegstMsgToProducer() {
   };
 
   tmp_regst_desc_id_vec_.clear();
-  naive_consumed_rs_.ForChosenRegstDeq(IsChosenRegstDescId, [&](const std::deque<Regst*>& reg_deq) {
-    CHECK(reg_deq.empty() == false);
-    Regst* regst = reg_deq.front();
-    CHECK(regst->regst_desc()->regst_desc_type().has_ctrl_regst_desc());
-    int32_t returned_regst_num =
-        regst->regst_desc()->regst_desc_type().ctrl_regst_desc().returned_regst_num();
-    CHECK_GE(returned_regst_num, 1);
-    CHECK_GE(reg_deq.size(), returned_regst_num);
-    for (size_t i = 0; i < returned_regst_num; ++i) {
-      Regst* regst = reg_deq.at(i);
-      // must access regst before sending it to producer
-      tmp_regst_desc_id_vec_.push_back(regst->regst_desc_id());
-      EnqueueAsyncMsg(
-          ActorMsg::BuildRegstMsgToProducer(actor_id_, regst->producer_actor_id(), regst));
-    }
-  });
+  naive_consumed_rs_.ForChosenRegstDeq(
+      IsChosenRegstDescId, [&](int64_t regst_desc_id, const std::deque<Regst*>& reg_deq) {
+        CHECK(reg_deq.empty() == false);
+        auto producer_task_id = Global<RegstMgr>::Get()->ProducerTaskId4RegstDescId(regst_desc_id);
+        Regst* regst = reg_deq.front();
+        CHECK_GE(reg_deq.size(), 1);
+        // must access regst before sending it to producer
+        tmp_regst_desc_id_vec_.push_back(regst_desc_id);
+        EnqueueAsyncMsg(ActorMsg::BuildRegstMsgToProducer(actor_id_, producer_task_id, regst));
+      });
   naive_consumed_rs_.PopFrontRegsts(tmp_regst_desc_id_vec_);
 }
 
@@ -515,14 +539,22 @@ void Actor::AsyncLaunchKernel(const KernelCtx& kernel_ctx,
                               std::function<Regst*(int64_t)> Regst4RegstDescId) {
   for (const ExecKernel& ek : exec_kernel_vec_) {
     ek.kernel->Launch(kernel_ctx, [&](const std::string& bn_in_op) -> Blob* {
-      auto regst_desc_id_it = ek.bn_in_op2regst_desc_id.find(bn_in_op);
-      if (regst_desc_id_it == ek.bn_in_op2regst_desc_id.end()) { return nullptr; }
-      Regst* regst = GetNaiveOrInplaceCurWriteable(regst_desc_id_it->second);
-      if (regst == nullptr) { regst = GetNaiveOrInplaceCurReadable(regst_desc_id_it->second); }
-      if (regst == nullptr) { regst = Regst4RegstDescId(regst_desc_id_it->second); }
+      const auto blob_info_it = ek.bn_in_op2blob_info.find(bn_in_op);
+      if (blob_info_it == ek.bn_in_op2blob_info.cend()) { return nullptr; }
+      const BlobInfo& info = blob_info_it->second;
+      if (info.regst_desc_id == -1) { return nullptr; }
+      Regst* regst;
+      if (info.rs != nullptr) {
+        regst = info.rs->Front(info.regst_desc_id);
+      } else {
+        regst = Regst4RegstDescId(info.regst_desc_id);
+      }
       if (regst == nullptr) { return nullptr; }
-      const LogicalBlobId& lbi = ek.kernel->BnInOp2Lbi(bn_in_op);
-      return regst->GetBlobByLbi(lbi);
+      if (info.ordinal >= 0) {
+        return regst->GetBlobByOrdinal(info.ordinal);
+      } else {
+        return regst->GetBlobByLbi(info.lbi);
+      }
     });
   }
 }
@@ -594,7 +626,8 @@ void Actor::AsyncSendRegstMsgToConsumer(Regst* regst, std::function<bool(int64_t
 
 void Actor::HandleConsumedNaiveDataRegstToProducer(std::function<bool(Regst*)> IsAllowedRegst) {
   tmp_regst_desc_id_vec_.clear();
-  naive_consumed_rs_.ForEachFrontRegst([&](Regst* regst) {
+  naive_consumed_rs_.ForEachFrontRegst([&](int64_t regst_desc_id, Regst* regst) {
+    if (IsConsumedCtrlRegstDescId(regst_desc_id)) { return; }
     if (regst->regst_desc()->regst_desc_type().has_data_regst_desc()) {
       if (IsAllowedRegst(regst) == false) { return; }
       // must access regst before sending it to producer
@@ -678,10 +711,6 @@ int64_t Actor::GetGlobalWorkStreamId() const {
   return Global<IDMgr>::Get()->GlobalWorkStreamId4ActorId(actor_id_);
 }
 
-int64_t Actor::GetLocalWorkStreamId() const {
-  return Global<IDMgr>::Get()->LocalWorkStreamId4ActorId(actor_id_);
-}
-
 Regst* Actor::GetNaiveOrInplaceCurReadable(int64_t regst_desc_id) const {
   Regst* regst = naive_consumed_rs_.Front(regst_desc_id);
   if (regst == nullptr) { regst = inplace_consumed_rs_.Front(regst_desc_id); }
@@ -703,7 +732,7 @@ Regst* Actor::GetNaiveCurWriteable(int64_t regst_desc_id) const {
 }
 
 std::unique_ptr<Actor> NewActor(const TaskProto& task_proto, const ThreadCtx& thread_ctx) {
-  Actor* rptr = NewObj<Actor>(task_proto.task_type());
+  Actor* rptr = NewObj<int32_t, Actor>(task_proto.task_type());
   const auto& job_descs = *Global<RuntimeJobDescs>::Get();
   rptr->Init(&job_descs.job_desc(task_proto.job_id()), task_proto, thread_ctx);
   return std::unique_ptr<Actor>(rptr);

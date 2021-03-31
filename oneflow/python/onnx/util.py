@@ -34,23 +34,29 @@ import onnx
 from onnx import helper, onnx_pb, defs, numpy_helper
 import six
 
-import oneflow.core.common.data_type_pb2 as data_type_pb2
 from oneflow.python.framework import id_util
 from oneflow.python.onnx import constants
+import oneflow
+import oneflow_api
 
 
 #
 #  mapping dtypes from oneflow to onnx
 #
 FLOW_2_ONNX_DTYPE = {
-    data_type_pb2.kFloat: onnx_pb.TensorProto.FLOAT,
-    data_type_pb2.kDouble: onnx_pb.TensorProto.DOUBLE,
-    data_type_pb2.kInt64: onnx_pb.TensorProto.INT64,
-    data_type_pb2.kInt32: onnx_pb.TensorProto.INT32,
-    data_type_pb2.kInt8: onnx_pb.TensorProto.INT8,
-    data_type_pb2.kUInt8: onnx_pb.TensorProto.UINT8,
-    data_type_pb2.kFloat16: onnx_pb.TensorProto.FLOAT16,
+    oneflow.float32: onnx_pb.TensorProto.FLOAT,
+    oneflow.float64: onnx_pb.TensorProto.DOUBLE,
+    oneflow.int64: onnx_pb.TensorProto.INT64,
+    oneflow.int32: onnx_pb.TensorProto.INT32,
+    oneflow.int8: onnx_pb.TensorProto.INT8,
+    oneflow.uint8: onnx_pb.TensorProto.UINT8,
+    oneflow.float16: onnx_pb.TensorProto.FLOAT16,
 }
+
+FLOW_PROTO_2_ONNX_DTYPE = {}
+for k, v in FLOW_2_ONNX_DTYPE.items():
+    FLOW_PROTO_2_ONNX_DTYPE[oneflow_api.deprecated.GetProtoDtype4OfDtype(k)] = v
+del k
 
 #
 # mapping dtypes from onnx to numpy
@@ -103,7 +109,18 @@ ONNX_EMPTY_INPUT = ""
 
 
 def Flow2OnnxDtype(dtype):
-    return FLOW_2_ONNX_DTYPE[dtype]
+    assert dtype in FLOW_2_ONNX_DTYPE or dtype in FLOW_PROTO_2_ONNX_DTYPE
+    if dtype in FLOW_2_ONNX_DTYPE:
+        return FLOW_2_ONNX_DTYPE[dtype]
+    else:
+        return FLOW_PROTO_2_ONNX_DTYPE[dtype]
+
+
+def Onnx2FlowDtype(dtype):
+    for flow_dtype, onnx_dtype in FLOW_2_ONNX_DTYPE.items():
+        if onnx_dtype == dtype:
+            return flow_dtype
+    raise ValueError("unsupported dtype " + np_dtype + " for mapping")
 
 
 def Numpy2OnnxDtype(np_dtype):

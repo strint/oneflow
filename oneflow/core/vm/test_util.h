@@ -34,13 +34,13 @@ class TestResourceDescScope final {
  public:
   TestResourceDescScope(const TestResourceDescScope&) = delete;
   TestResourceDescScope(TestResourceDescScope&&) = delete;
-  TestResourceDescScope(int64_t gpu_device_num, int64_t cpu_device_num);
+  TestResourceDescScope(int64_t gpu_device_num, int64_t cpu_device_num, int64_t machine_num);
+  TestResourceDescScope(int64_t gpu_device_num, int64_t cpu_device_num)
+      : TestResourceDescScope(gpu_device_num, cpu_device_num, 1) {}
   ~TestResourceDescScope();
 };
 
 struct TestUtil {
-  using InstructionMsgList = OBJECT_MSG_LIST(InstructionMsg, instr_msg_link);
-
   static ObjectMsgPtr<VmResourceDesc> NewVmResourceDesc() { return NewVmResourceDesc(1); }
 
   static ObjectMsgPtr<VmResourceDesc> NewVmResourceDesc(int64_t device_num) {
@@ -55,6 +55,8 @@ struct TestUtil {
     int64_t parallel_desc_symbol_id = 0;
     return NewObject(list, device_tag, device_name, &parallel_desc_symbol_id);
   }
+  static int64_t NewParallelDesc(InstructionMsgList*, const std::string& device_tag,
+                                 const std::string& device_name);
   static int64_t NewObject(InstructionMsgList*, const std::string& device_tag,
                            const std::string& device_name, int64_t* parallel_desc_symbol_id);
   static int64_t NewSymbol(InstructionMsgList*);

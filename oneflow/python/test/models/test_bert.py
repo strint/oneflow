@@ -165,7 +165,7 @@ def BuildPreTrainNet(
 
 def CreateOptimizer():
     lr_warmup = flow.optimizer.warmup.linear(1000, 0)
-    lr_scheduler = flow.optimizer.PolynomialSchduler(
+    lr_scheduler = flow.optimizer.PolynomialScheduler(
         FLAGS.lr, 100000, 0.0, warmup=lr_warmup
     )
     return flow.optimizer.AdamW(
@@ -239,7 +239,6 @@ def test_2n8c(test_case):
     print(of_loss)
 
 
-@unittest.skipIf(os.getenv("ONEFLOW_TEST_CPU_ONLY"), "only test cpu cases")
 def test_inplace(test_case):
     test_case.assertTrue(
         np.allclose(GetSeveralLossesAsNumpy(True), GetSeveralLossesAsNumpy(False))

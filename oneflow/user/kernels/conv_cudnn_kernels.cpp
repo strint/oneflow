@@ -19,6 +19,7 @@ limitations under the License.
 #include "oneflow/user/ops/nn_util.h"
 #include "oneflow/core/device/cudnn_conv_util.h"
 #include "oneflow/core/job/job_desc.h"
+#include "oneflow/core/kernel/new_kernel_util.h"
 
 namespace oneflow {
 
@@ -164,7 +165,6 @@ class ConvGpuKernel final : public user_op::OpKernel {
     const user_op::Tensor* weight = ctx->Tensor4ArgNameAndIndex("weight", 0);
     user_op::Tensor* buf = ctx->Tensor4ArgNameAndIndex("tmp_buffer", 0);
     user_op::Tensor* out = ctx->Tensor4ArgNameAndIndex("out", 0);
-
     CudnnConvArgsAndAlgo<cudnnConvolutionFwdAlgoPerf_t> args_and_algo(
         in, weight, out, buf, job_desc, ctx->user_op_conf(), ctx->device_ctx(),
         job_desc.job_conf().has_cudnn_conv_force_fwd_algo(),
@@ -194,7 +194,7 @@ class ConvGpuKernel final : public user_op::OpKernel {
       .SetIsMatchedHob((user_op::HobDeviceTag() == "gpu")                              \
                        & (user_op::HobDataType("in", 0) == GetDataType<dtype>::value)) \
       .SetInferTmpSizeFn([](user_op::InferContext* ctx) -> size_t {                    \
-        const JobDesc& job_desc = ctx->job_desc();                                     \
+        const JobDesc& job_desc = *ctx->job_desc();                                    \
         const auto* in = ctx->TensorDesc4ArgNameAndIndex("in", 0);                     \
         const auto* weight = ctx->TensorDesc4ArgNameAndIndex("weight", 0);             \
         const auto* out = ctx->TensorDesc4ArgNameAndIndex("out", 0);                   \
@@ -239,27 +239,48 @@ class ConvDataGradGpuKernel final : public user_op::OpKernel {
     const CudnnConvArgs& args = args_and_algo.args;
     const cudnnConvolutionBwdDataAlgoPerf_t& algo_perf = args_and_algo.algo_perf;
 
+    const void* alpha = CudnnSPOnePtr<T>();
+    const void* beta;
+    if (ctx->user_op_conf().has_input("_add_to_output", 0)) {
+      const user_op::Tensor* add_to_output = ctx->Tensor4ArgNameAndIndex("_add_to_output", 0);
+      CHECK_EQ(add_to_output->data_type(), dx->data_type());
+      CHECK_EQ(add_to_output->shape(), dx->shape());
+      Memcpy<DeviceType::kGPU>(
+          ctx->device_ctx(), dx->mut_dptr<void>(), add_to_output->dptr<void>(),
+          add_to_output->shape().elem_cnt() * GetSizeOfDataType(add_to_output->data_type()));
+      beta = CudnnSPOnePtr<T>();
+    } else {
+      beta = CudnnSPZeroPtr<T>();
+    }
+
     OF_CUDNN_CHECK(cudnnConvolutionBackwardData(
-        ctx->device_ctx()->cudnn_handle(), CudnnSPOnePtr<T>(), args.wdesc.Get(), filter->dptr(),
+        ctx->device_ctx()->cudnn_handle(), alpha, args.wdesc.Get(), filter->dptr(),
         args.ydesc.Get(), dy->dptr(), args.cdesc.Get(), algo_perf.algo, buf->mut_dptr(),
-        args.params.max_ws_size, CudnnSPZeroPtr<T>(), args.xdesc.Get(), dx->mut_dptr()));
+        args.params.max_ws_size, beta, args.xdesc.Get(), dx->mut_dptr()));
   }
 };
 
-#define REGISTER_CONV_DATA_GRAD_FLOATING_KERNEL(dtype)                                 \
-  REGISTER_USER_KERNEL("conv_data_grad")                                               \
-      .SetCreateFn<ConvDataGradGpuKernel<dtype>>()                                     \
-      .SetIsMatchedHob((user_op::HobDeviceTag() == "gpu")                              \
-                       & (user_op::HobDataType("dy", 0) == GetDataType<dtype>::value)) \
-      .SetInferTmpSizeFn([](user_op::InferContext* ctx) -> size_t {                    \
-        const JobDesc& job_desc = ctx->job_desc();                                     \
-        const auto* dy = ctx->TensorDesc4ArgNameAndIndex("dy", 0);                     \
-        const auto* filter = ctx->TensorDesc4ArgNameAndIndex("filter", 0);             \
-        const auto* dx = ctx->TensorDesc4ArgNameAndIndex("dx", 0);                     \
-        return InferTmpSizeWithCudnn<cudnnConvolutionBwdDataAlgoPerf_t>(               \
-            dx, filter, dy, job_desc, ctx->user_op_conf(),                             \
-            job_desc.job_conf().has_cudnn_conv_force_bwd_data_algo(),                  \
-            job_desc.job_conf().cudnn_conv_force_bwd_data_algo());                     \
+#define REGISTER_CONV_DATA_GRAD_FLOATING_KERNEL(dtype)                                          \
+  REGISTER_USER_KERNEL("conv_data_grad")                                                        \
+      .SetCreateFn<ConvDataGradGpuKernel<dtype>>()                                              \
+      .SetIsMatchedHob((user_op::HobDeviceTag() == "gpu")                                       \
+                       & (user_op::HobDataType("dy", 0) == GetDataType<dtype>::value))          \
+      .SetInferTmpSizeFn([](user_op::InferContext* ctx) -> size_t {                             \
+        const JobDesc& job_desc = *ctx->job_desc();                                             \
+        const auto* dy = ctx->TensorDesc4ArgNameAndIndex("dy", 0);                              \
+        const auto* filter = ctx->TensorDesc4ArgNameAndIndex("filter", 0);                      \
+        const auto* dx = ctx->TensorDesc4ArgNameAndIndex("dx", 0);                              \
+        return InferTmpSizeWithCudnn<cudnnConvolutionBwdDataAlgoPerf_t>(                        \
+            dx, filter, dy, job_desc, ctx->user_op_conf(),                                      \
+            job_desc.job_conf().has_cudnn_conv_force_bwd_data_algo(),                           \
+            job_desc.job_conf().cudnn_conv_force_bwd_data_algo());                              \
+      })                                                                                        \
+      .SetInplaceProposalFn([](const user_op::InferContext& ctx,                                \
+                               user_op::AddInplaceArgPair AddInplaceArgPairFn) -> Maybe<void> { \
+        if (ctx.user_op_conf().has_input("_add_to_output", 0)) {                                \
+          OF_RETURN_IF_ERROR(AddInplaceArgPairFn("dx", 0, "_add_to_output", 0, true));          \
+        }                                                                                       \
+        return Maybe<void>::Ok();                                                               \
       })
 
 REGISTER_CONV_DATA_GRAD_FLOATING_KERNEL(float);
@@ -304,7 +325,7 @@ class ConvFilterGradGpuKernel final : public user_op::OpKernel {
       .SetIsMatchedHob((user_op::HobDeviceTag() == "gpu")                              \
                        & (user_op::HobDataType("dy", 0) == GetDataType<dtype>::value)) \
       .SetInferTmpSizeFn([](user_op::InferContext* ctx) -> size_t {                    \
-        const JobDesc& job_desc = ctx->job_desc();                                     \
+        const JobDesc& job_desc = *ctx->job_desc();                                    \
         const auto* dy = ctx->TensorDesc4ArgNameAndIndex("dy", 0);                     \
         const auto* x = ctx->TensorDesc4ArgNameAndIndex("x", 0);                       \
         const auto* filter_diff = ctx->TensorDesc4ArgNameAndIndex("filter_diff", 0);   \

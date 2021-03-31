@@ -14,7 +14,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 #include "oneflow/core/operator/operator.h"
-#include "oneflow/core/graph/logical_node.h"
 
 namespace oneflow {
 
@@ -25,23 +24,44 @@ class ModelSaveOp final : public Operator {
   ~ModelSaveOp() override = default;
 
   void InitFromOpConf() override;
-  const PbMessage& GetCustomizedConf() const override;
-  LogicalNode* NewProperLogicalNode() const override { return new PrintLogicalNode; }
-  Maybe<void> InferBlobDescs(std::function<BlobDesc*(const std::string&)> GetBlobDesc4BnInOp,
-                             const ParallelContext* parallel_ctx) const override {
+  Maybe<void> InferLogicalOutBlobDescs(
+      const std::function<BlobDesc*(const std::string&)>& BlobDesc4BnInOp,
+      const ParallelDesc& parallel_desc) const override {
+    return Maybe<void>::Ok();
+  }
+  Maybe<void> InferOutBlobDescs(
+      const std::function<BlobDesc*(const std::string&)>& GetBlobDesc4BnInOp,
+      const ParallelContext* parallel_ctx) const override {
     return Maybe<void>::Ok();
   }
 
  private:
-  Maybe<void> InferBatchAxis(
-      std::function<OptInt64*(const std::string&)> BatchAxis4BnInOp) const override {
-    return Maybe<void>::Ok();
-  }
   Maybe<void> GetSbpSignatures(
       const std::function<Maybe<const BlobDesc&>(const std::string&)>& LogicalBlobDesc4Ibn,
       SbpSignatureList* sbp_sig_list) const override {
     return Maybe<void>::Ok();
   };
+
+  Maybe<void> InferParallelDistributionSignature(
+      ParallelDistributionSignature* parallel_distribution_signature,
+      const ParallelDistributionSignature& parallel_distribution_constraints,
+      const ParallelDesc& parallel_desc,
+      std::function<Maybe<const ParallelDistributionInferHint*>(const std::string&)>
+          ParallelDistributionInferHint4Ibn) const override {
+    ParallelDistribution broadcast_distribution;
+    for (int64_t i = 0; i < parallel_desc.hierarchy()->NumAxes(); ++i) {
+      broadcast_distribution.add_sbp_parallel()->mutable_broadcast_parallel();
+    }
+    for (const std::string& ibn : input_bns()) {
+      (*parallel_distribution_signature->mutable_bn_in_op2parallel_distribution())[ibn] =
+          broadcast_distribution;
+    }
+    for (const std::string& obn : output_bns()) {
+      (*parallel_distribution_signature->mutable_bn_in_op2parallel_distribution())[obn] =
+          broadcast_distribution;
+    }
+    return Maybe<void>::Ok();
+  }
 };
 
 void ModelSaveOp::InitFromOpConf() {
@@ -49,8 +69,6 @@ void ModelSaveOp::InitFromOpConf() {
   EnrollInputBn("path", false);
   EnrollRepeatedInputBn("in", false);
 }
-
-const PbMessage& ModelSaveOp::GetCustomizedConf() const { return op_conf().model_save_conf(); }
 
 REGISTER_CPU_OP(OperatorConf::kModelSaveConf, ModelSaveOp);
 

@@ -41,9 +41,6 @@ class Kernel {
 
   void Init(const JobDesc* job_desc, const KernelConf&, DeviceCtx*);
 
-  void InitModelAndConstBuf(const KernelCtx& ctx,
-                            std::function<Blob*(const std::string&)> BnInOp2Blob) const;
-
   void Launch(const KernelCtx& ctx, std::function<Blob*(const std::string&)> BnInOp2Blob) const;
 
   const LogicalBlobId& BnInOp2Lbi(const std::string& bn_in_op) const;
@@ -80,9 +77,6 @@ class Kernel {
   virtual void VirtualKernelInit(DeviceCtx* device_ctx) { VirtualKernelInit(); }
   virtual void VirtualKernelInit() {}
   const KernelConf& kernel_conf() const { return kernel_conf_; }
-
-  virtual void InitConstBufBlobs(DeviceCtx* ctx,
-                                 std::function<Blob*(const std::string&)> BnInOp2Blob) const {}
 
   template<typename HandlerT>
   void ForEachObnAndIsHeaderInferedBeforeCompute(
@@ -121,34 +115,11 @@ class Kernel {
   // TODO(niuchong) : rename ForwardDataContent to ForwardBody
   virtual void ForwardDataContent(const KernelCtx& ctx,
                                   std::function<Blob*(const std::string&)> BnInOp2Blob) const = 0;
-  virtual void ForwardPackedHeader(const KernelCtx& ctx,
-                                   std::function<Blob*(const std::string&)> BnInOp2Blob) const {
-    UNIMPLEMENTED();
-  }
   virtual bool IsStateless() const { return false; }
   virtual const PbMessage& GetCustomizedOpConf() const { UNIMPLEMENTED(); }
   virtual const PbMessage& GetCustomizedKernelConf() const { UNIMPLEMENTED(); }
   void CheckSameDim0ValidNum(const PbRpf<std::string>& bns,
                              const std::function<Blob*(const std::string&)>& BnInOp2Blob) const;
-
-#define DEFINE_GET_VAL_FROM_CUSTOMIZED_CONF(conf_type)                                   \
-  template<typename T>                                                                   \
-  T GetValFromCustomized##conf_type(const std::string& field_name) const {               \
-    const PbMessage& customized_conf = GetCustomized##conf_type();                       \
-    return GetValFromPbMessage<T>(customized_conf, field_name);                          \
-  }                                                                                      \
-  template<typename T>                                                                   \
-  const PbRf<T>& GetPbRfFromCustomized##conf_type(const std::string& field_name) const { \
-    return GetPbRfFromPbMessage<T>(GetCustomized##conf_type(), field_name);              \
-  }                                                                                      \
-  int32_t GetEnumFromCustomized##conf_type(const std::string& field_name) const {        \
-    return GetEnumFromPbMessage(GetCustomized##conf_type(), field_name);                 \
-  }
-
-  DEFINE_GET_VAL_FROM_CUSTOMIZED_CONF(OpConf);
-  DEFINE_GET_VAL_FROM_CUSTOMIZED_CONF(KernelConf);
-
-#undef DEFINE_GET_VAL_FROM_CUSTOMIZED_CONF
 
  private:
   const JobDesc* job_desc_;
@@ -165,11 +136,6 @@ class KernelIf : public Kernel {
  protected:
   KernelIf() = default;
 
-  virtual void ForwardPackedHeader(
-      const KernelCtx& ctx, std::function<Blob*(const std::string&)> BnInOp2Blob) const override {
-    CopyField(ctx.device_ctx, BnInOp2Blob, op_attribute().input_bns(), op_attribute().output_bns(),
-              &Blob::CopyHeaderFrom);
-  }
   void CopyField(DeviceCtx* ctx, std::function<Blob*(const std::string&)> BnInOp2Blob,
                  const Blob* from_blob, const PbRpf<std::string>& to_bns,
                  void (Blob::*Copy)(DeviceCtx*, const Blob*)) const {
@@ -194,13 +160,12 @@ class KernelIf : public Kernel {
       }
     }
   }
-
-  bool EnableCudnn() const { return op_conf().enable_cudnn(); }
 };
 
 #define REGISTER_KERNEL(k, KernelType) \
-  REGISTER_CLASS_WITH_ARGS(k, Kernel, KernelType, const KernelConf&)
-#define REGISTER_KERNEL_CREATOR(k, f) REGISTER_CLASS_CREATOR(k, Kernel, f, const KernelConf&)
+  REGISTER_CLASS_WITH_ARGS(int32_t, k, Kernel, KernelType, const KernelConf&)
+#define REGISTER_KERNEL_CREATOR(k, f) \
+  REGISTER_CLASS_CREATOR(int32_t, k, Kernel, f, const KernelConf&)
 
 std::unique_ptr<const Kernel> ConstructKernel(const JobDesc* job_desc, const KernelConf&,
                                               DeviceCtx*);

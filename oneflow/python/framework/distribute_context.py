@@ -16,6 +16,7 @@ limitations under the License.
 from __future__ import absolute_import
 
 import oneflow.python.framework.session_context as session_ctx
+import oneflow.python.framework.scope_util as scope_util
 
 
 class DistributeStrategy(object):
@@ -24,12 +25,14 @@ class DistributeStrategy(object):
         self.scope_context_ = None
         sess = session_ctx.GetDefaultSession()
         # bypass the first DistributeStrategy for avoiding None old_scope
-        if sess.is_running and len(sess.is_mirrored_strategy_enabled_stack) > 0:
+        if sess.is_running and not sess.has_empty_is_mirrored_strategy_enabled_stack():
 
             def BuildScope(old_scope, builder):
-                return old_scope.BuildWithNewIsMirrored(builder, is_mirrored)
+                return builder.BuildScopeWithNewIsMirrored(old_scope, is_mirrored)
 
-            self.scope_context_ = sess.NewCurrentScope(sess.MakeScope(BuildScope))
+            self.scope_context_ = scope_util.ScopeContext(
+                scope_util.MakeScope(BuildScope)
+            )
 
     def __enter__(self, *argc, **kwarg):
         PushMirroredStrategyEnabled(self.is_mirrored_)
@@ -43,18 +46,16 @@ class DistributeStrategy(object):
 
 
 def PushMirroredStrategyEnabled(val):
-    session_ctx.GetDefaultSession().is_mirrored_strategy_enabled_stack.append(val)
+    session_ctx.GetDefaultSession().push_mirrored_strategy_enabled(val)
 
 
 def IsMirroredStrategyEnabled():
-    stack = session_ctx.GetDefaultSession().is_mirrored_strategy_enabled_stack
-    return len(stack) > 0 and stack[-1]
+    return session_ctx.GetDefaultSession().is_mirrored_strategy_enabled()
 
 
 def IsConsistentStrategyEnabled():
-    stack = session_ctx.GetDefaultSession().is_mirrored_strategy_enabled_stack
-    return len(stack) > 0 and not stack[-1]
+    return session_ctx.GetDefaultSession().is_consistent_strategy_enabled()
 
 
 def PopMirroredStrategyEnabled():
-    session_ctx.GetDefaultSession().is_mirrored_strategy_enabled_stack.pop()
+    session_ctx.GetDefaultSession().pop_mirrored_strategy_enabled()

@@ -7,7 +7,6 @@ include(protobuf)
 include(googletest)
 include(gflags)
 include(glog)
-include(grpc)
 include(libjpeg-turbo)
 include(opencv)
 include(eigen)
@@ -15,15 +14,20 @@ include(cocoapi)
 include(half)
 include(re2)
 include(json)
+if (RPC_BACKEND MATCHES "GRPC")
+  include(absl)
+  include(cares)
+  include(openssl)
+  include(grpc)
+endif()
+include(flatbuffers)
+include(lz4)
 
 if (WITH_XLA)
   include(tensorflow)
 endif()
 
 if (WITH_TENSORRT)
-  if (NOT WITH_XLA)
-    include(absl)
-  endif()
   include(tensorrt)
 endif()
 
@@ -45,6 +49,9 @@ if (BUILD_CUDA)
     get_filename_component(cuda_lib_dir ${CUDA_cudart_static_LIBRARY} DIRECTORY)
   endif()
   set(extra_cuda_libs libculibos.a libcurand_static.a)
+  if(CUDA_VERSION VERSION_GREATER_EQUAL "10.2")
+    list(APPEND extra_cuda_libs libnvjpeg_static.a libnppc_static.a libnppig_static.a)
+  endif()
   foreach(extra_cuda_lib ${extra_cuda_libs})
     list(APPEND CUDA_LIBRARIES ${cuda_lib_dir}/${extra_cuda_lib})
   endforeach()
@@ -95,10 +102,13 @@ else()
 endif()
 message(STATUS "Found Blas Lib: " ${BLAS_LIBRARIES})
 
-set(oneflow_third_party_libs
-    ${CMAKE_THREAD_LIBS_INIT}
+# libraries only a top level .so or exe should be linked to
+set(oneflow_exe_third_party_libs
     ${GLOG_STATIC_LIBRARIES}
     ${GFLAGS_STATIC_LIBRARIES}
+)
+
+set(oneflow_third_party_libs
     ${GOOGLETEST_STATIC_LIBRARIES}
     ${GOOGLEMOCK_STATIC_LIBRARIES}
     ${PROTOBUF_STATIC_LIBRARIES}
@@ -109,6 +119,12 @@ set(oneflow_third_party_libs
     ${COCOAPI_STATIC_LIBRARIES}
     ${LIBJPEG_STATIC_LIBRARIES}
     ${ZLIB_STATIC_LIBRARIES}
+    ${CARES_STATIC_LIBRARIES}
+    ${ABSL_STATIC_LIBRARIES}
+    ${OPENSSL_STATIC_LIBRARIES}
+    ${CMAKE_THREAD_LIBS_INIT}
+    ${FLATBUFFERS_STATIC_LIBRARIES}
+    ${LZ4_STATIC_LIBRARIES}
 )
 
 if (NOT WITH_XLA)
@@ -135,8 +151,6 @@ set(oneflow_third_party_dependencies
   googletest_copy_libs_to_destination
   googlemock_copy_headers_to_destination
   googlemock_copy_libs_to_destination
-  grpc_copy_headers_to_destination
-  grpc_copy_libs_to_destination
   opencv_copy_headers_to_destination
   libpng_copy_headers_to_destination
   opencv_copy_libs_to_destination
@@ -146,8 +160,15 @@ set(oneflow_third_party_dependencies
   half_copy_headers_to_destination
   re2
   json_copy_headers_to_destination
+  flatbuffers
+  lz4_copy_libs_to_destination
+  lz4_copy_headers_to_destination
 )
 
+if (RPC_BACKEND MATCHES "GRPC")
+  list(APPEND oneflow_third_party_dependencies grpc_copy_headers_to_destination)
+  list(APPEND oneflow_third_party_dependencies grpc_copy_libs_to_destination)
+endif()
 
 list(APPEND ONEFLOW_INCLUDE_SRC_DIRS
     ${ZLIB_INCLUDE_DIR}
@@ -164,6 +185,11 @@ list(APPEND ONEFLOW_INCLUDE_SRC_DIRS
     ${COCOAPI_INCLUDE_DIR}
     ${HALF_INCLUDE_DIR}
     ${JSON_INCLUDE_DIR}
+    ${ABSL_INCLUDE_DIR}
+    ${CARES_INCLUDE_DIR}
+    ${OPENSSL_INCLUDE_DIR}
+    ${FLATBUFFERS_INCLUDE_DIR}
+    ${LZ4_INCLUDE_DIR}
 )
 
 if (NOT WITH_XLA)
@@ -214,13 +240,11 @@ include_directories(${ONEFLOW_INCLUDE_SRC_DIRS})
 
 if(WITH_XLA)
   list(APPEND oneflow_third_party_dependencies tensorflow_copy_libs_to_destination)
+  list(APPEND oneflow_third_party_dependencies tensorflow_symlink_headers)
   list(APPEND oneflow_third_party_libs ${TENSORFLOW_XLA_LIBRARIES})
 endif()
 
 if(WITH_TENSORRT)
-  if (NOT WITH_XLA)
-    list(APPEND oneflow_third_party_libs ${ABSL_LIBRARIES})
-  endif()
   list(APPEND oneflow_third_party_libs ${TENSORRT_LIBRARIES})
 endif()
 

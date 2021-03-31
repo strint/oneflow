@@ -18,25 +18,51 @@ limitations under the License.
 
 #include <sstream>
 #include <vector>
-#include "oneflow/core/common/error.pb.h"
+#include "oneflow/core/common/error.cfg.h"
 
 namespace oneflow {
 
 class Error final {
  public:
-  Error(const std::shared_ptr<ErrorProto>& error_proto) : error_proto_(error_proto) {}
+  Error(const std::shared_ptr<cfg::ErrorProto>& error_proto) : error_proto_(error_proto) {}
   Error(const Error&) = default;
   ~Error() = default;
 
+  std::shared_ptr<cfg::ErrorProto> error_proto() const { return error_proto_; }
+  const cfg::ErrorProto* operator->() const { return error_proto_.get(); }
+  cfg::ErrorProto* operator->() { return error_proto_.get(); }
+  operator std::string() const;
+  void Assign(const Error& other) { error_proto_ = other.error_proto_; }
+
+  // r-value reference is used to supporting expressions like `Error().AddStackFrame("foo.cpp",
+  // "Bar") << "invalid value"` because operator<<() need r-value reference
+  Error&& AddStackFrame(const std::string& location, const std::string& function);
+
   static Error Ok();
   static Error ProtoParseFailedError();
-  static Error JobSetEmpty();
-  static Error DeviceTagNotFound();
-  static Error JobTypeNotSet();
+  static Error JobSetEmptyError();
+  static Error DeviceTagNotFoundError();
+  static Error ValueError(const std::string& error_summary);
+  static Error JobNameExistError();
+  static Error JobNameEmptyError();
+  static Error JobNameNotEqualError();
+  static Error NoJobBuildAndInferCtxError();
+  static Error JobConfFrozenError();
+  static Error JobConfNotSetError();
+  static Error JobConfRepeatedSetError();
+  static Error JobTypeNotSetError();
+  static Error LogicalBlobNameNotExistError();
+  static Error LogicalBlobNameExistError();
+  static Error LogicalBlobNameInvalidError();
+  static Error OpNameExistError();
+  static Error OpConfDeviceTagNoSetError();
+  static Error PlacementError();
+  static Error BlobSplitAxisInferError();
+  static Error UnknownJobBuildAndInferError();
   static Error CheckFailedError();
   static Error Todo();
   static Error Unimplemented();
-  static Error BoxingNotSupported();
+  static Error BoxingNotSupportedError();
   static Error MemoryZoneOutOfMemoryError(int64_t machine_id, int64_t mem_zone_id, uint64_t calc,
                                           uint64_t available, const std::string& device_type);
   static Error OpKernelNotFoundError(const std::string& error_summary,
@@ -45,33 +71,42 @@ class Error final {
                                              const std::vector<std::string>& error_msgs);
   static Error LossBlobNotFoundError(const std::string& error_summary);
 
+  static Error RwMutexedObjectNotFoundError();
+
   // gradient
   static Error GradientFunctionNotFound();
 
-  std::shared_ptr<ErrorProto> error_proto() const { return error_proto_; }
-  ErrorProto* operator->() const { return error_proto_.get(); }
-  operator std::string() const;
+  // symbol
+  static Error SymbolIdUninitialized();
+
+  static Error CompileOptionWrong();
 
  private:
-  std::shared_ptr<ErrorProto> error_proto_;
+  std::shared_ptr<cfg::ErrorProto> error_proto_;
 };
 
+void ThrowError(const std::shared_ptr<cfg::ErrorProto>& error);
+const std::shared_ptr<cfg::ErrorProto>& ThreadLocalError();
+
+// r-value reference is used to supporting expressions like `Error() << "invalid value"`
 template<typename T>
 Error&& operator<<(Error&& error, const T& x) {
   std::ostringstream ss;
   ss << x;
-  error->set_msg(error->msg() + ss.str());
+  if (error->stack_frame().empty()) {
+    error->set_msg(error->msg() + ss.str());
+  } else {
+    auto* stack_frame_top = error->mutable_stack_frame(error->stack_frame_size() - 1);
+    stack_frame_top->set_error_msg(stack_frame_top->error_msg() + ss.str());
+  }
   return std::move(error);
 }
 
 template<>
-inline Error&& operator<<(Error&& error, const JobBuildAndInferError& x) {
-  error->set_job_build_and_infer_error(x);
+inline Error&& operator<<(Error&& error, const Error& other) {
+  error.Assign(other);
   return std::move(error);
 }
-
-// for LOG(ERROR)
-Error&& operator<=(const std::pair<std::string, std::string>& loc_and_func, Error&& error);
 
 }  // namespace oneflow
 

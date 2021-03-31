@@ -27,6 +27,7 @@ import oneflow.python.framework.hob as hob
 import oneflow.python.lib.core.enable_if as enable_if
 import oneflow.python.experimental.name_scope as name_scope
 import oneflow
+import oneflow_api
 
 
 def GetCurJobConfigProto():
@@ -42,7 +43,7 @@ def GetEagerCurJobConfigProto():
 
 @enable_if.condition(hob.in_global_mode & ~hob.eager_execution_enabled)
 def GetLazyCurJobConfigProto():
-    job_name = c_api_util.JobBuildAndInferCtx_GetCurrentJobName()
+    job_name = oneflow_api.JobBuildAndInferCtx_GetCurrentJobName()
     function_desc = session_ctx.GetDefaultSession().GetLazyFunctionDesc(job_name)
     assert function_desc is not None
     return function_desc.job_config_proto
@@ -64,7 +65,11 @@ def CurJobAddConsistentOp(op_conf, scope_symbol=None):
     if not op_conf.HasField("device_tag"):
         device_tag = scope_symbol.device_parallel_desc_symbol.device_tag
         op_conf.device_tag = device_tag
-    return c_api_util.CurJobBuildAndInferCtx_AddAndInferConsistentOp(op_conf)
+    op_attr = c_api_util.CurJobBuildAndInferCtx_AddAndInferConsistentOp(op_conf)
+    if c_api_util.IsInterfaceOpConf(op_conf):
+        sess = session_ctx.GetDefaultSession()
+        sess.AddInfo4InterfaceOpName(op_conf.name, op_attr)
+    return op_attr
 
 
 def CurJobAddMirroredOp(op_conf, scope_symbol=None):
@@ -75,4 +80,8 @@ def CurJobAddMirroredOp(op_conf, scope_symbol=None):
     if not op_conf.HasField("device_tag"):
         device_tag = scope_symbol.device_parallel_desc_symbol.device_tag
         op_conf.device_tag = device_tag
-    return c_api_util.CurJobBuildAndInferCtx_AddAndInferMirroredOp(op_conf)
+    op_attr = c_api_util.CurJobBuildAndInferCtx_AddAndInferMirroredOp(op_conf)
+    if c_api_util.IsInterfaceOpConf(op_conf):
+        sess = session_ctx.GetDefaultSession()
+        sess.AddInfo4InterfaceOpName(op_conf.name, op_attr)
+    return op_attr

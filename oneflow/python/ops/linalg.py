@@ -24,19 +24,57 @@ import oneflow.python.framework.interpret_util as interpret_util
 import oneflow.python.framework.id_util as id_util
 import oneflow.python.framework.remote_blob as remote_blob_util
 from oneflow.python.oneflow_export import oneflow_export
+import oneflow_api
 from typing import Optional
 
 
 @oneflow_export("matmul", "linalg.matmul")
 def matmul(
-    a: remote_blob_util.BlobDef,
-    b: remote_blob_util.BlobDef,
+    a: oneflow_api.BlobDesc,
+    b: oneflow_api.BlobDesc,
     transpose_a: bool = False,
     transpose_b: bool = False,
     name: Optional[str] = None,
-) -> remote_blob_util.BlobDef:
-    r"""
-    Analogous to `tf.linalg.matmul <https://www.tensorflow.org/api_docs/python/tf/linalg/matmul>`_
+) -> oneflow_api.BlobDesc:
+    r"""This operator applies matrix multiplication to two Blobs. 
+
+    Args:
+        a (oneflow_api.BlobDesc): A Blob
+        b (oneflow_api.BlobDesc): A Blob
+        transpose_a (bool, optional): Whether to transpose A Blob. Defaults to False.
+        transpose_b (bool, optional): Whether to transpose B Blob. Defaults to False.
+        name (Optional[str], optional): The name for the operation. Defaults to None.
+
+    Returns:
+        oneflow_api.BlobDesc: The result Blob
+
+    For example: 
+
+    .. code-block:: python 
+
+        import oneflow as flow
+        import numpy as np
+        import oneflow.typing as tp
+
+
+        @flow.global_function()
+        def matmul_Job(A: tp.Numpy.Placeholder((3, 3)),
+                    B: tp.Numpy.Placeholder((3, 3))
+        ) -> tp.Numpy:
+            return flow.linalg.matmul(A, B)
+
+
+        A = np.array([[1, 0, 0],
+                    [0, 1, 1],
+                    [0, 0, 1]]).astype(np.float32)
+        B = np.array([[3, 4, 5],
+                    [6, 7, 8],
+                    [9, 10, 11]]).astype(np.float32)
+        out = matmul_Job(A, B)
+
+        # output [[ 3.  4.  5.]
+        #         [15. 17. 19.]
+        #         [ 9. 10. 11.]]
 
     """
     assert len(a.shape) == len(b.shape)

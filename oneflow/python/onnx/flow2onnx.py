@@ -189,7 +189,7 @@ def FlowOnnxMapping(g, ops_mapping):
             logger.debug("explicitly skip node " + node.name)
             continue
 
-        op = node.type
+        op = node.op_type
         map_info = ops_mapping.get(op)
         if map_info is None:
             unmapped_op[op] += 1
@@ -199,7 +199,7 @@ def FlowOnnxMapping(g, ops_mapping):
 
         func, onnx_op, kwargs = map_info
         if onnx_op is not None:
-            node.type = onnx_op
+            node.op_type = onnx_op
         try:
             func(g, node, **kwargs)
             node.skip_conversion = True
@@ -253,6 +253,7 @@ def Export(
     job_set = c_api_util.GetJobSet()
     job_name = job_func.__name__
     for job in job_set.job:
+        # TODO(OYY) Modify the interface before modifying it
         if job.job_conf.job_name == job_name:
             onnx_graph = ProcessFlowGraph(
                 job,

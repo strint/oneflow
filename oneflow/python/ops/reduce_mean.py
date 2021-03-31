@@ -24,15 +24,50 @@ import oneflow.core.register.logical_blob_id_pb2 as logical_blob_id_util
 import oneflow.python.framework.id_util as id_util
 import oneflow.python.framework.remote_blob as remote_blob_util
 from oneflow.python.oneflow_export import oneflow_export
+import oneflow_api
 
 
 @oneflow_export("math.reduce_mean")
 def reduce_mean(
-    input_blob: remote_blob_util.BlobDef,
+    input_blob: oneflow_api.BlobDesc,
     axis: Optional[Union[collections.Sized, int]] = None,
     keepdims: bool = False,
     name: Optional[str] = None,
-) -> remote_blob_util.BlobDef:
+) -> oneflow_api.BlobDesc:
+    """This operator computes the mean of input Blob along the specified axis
+
+    Args:
+        input_blob (oneflow_api.BlobDesc): A Blob
+        axis (Optional[Union[collections.Sized, int]], optional): The dimension along which the mean value is computed. Defaults to None.
+        keepdims (bool, optional): Whether to keep the reduced dimension in the output Blob. Defaults to False.
+        name (Optional[str], optional): The name for the operation. Defaults to None.
+
+    Returns:
+        oneflow_api.BlobDesc: The result of average on the specified axis of input Blob
+
+    For example: 
+
+    .. code-block:: python 
+
+        import oneflow as flow
+        import numpy as np
+        import oneflow.typing as tp
+
+
+        @flow.global_function()
+        def reduce_mean_Job(x: tp.Numpy.Placeholder((3, 3))
+        ) -> tp.Numpy:
+            return flow.math.reduce_mean(x, axis=1, keepdims=True)
+
+
+        x = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]]).astype(np.float32)
+        out = reduce_mean_Job(x)
+
+        # out [[2.]
+        #      [5.]
+        #      [8.]]
+
+    """
     reduce_sum = flow.math.reduce_sum(
         input_blob, axis=axis, keepdims=keepdims, name=name
     )

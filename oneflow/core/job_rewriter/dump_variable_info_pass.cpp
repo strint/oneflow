@@ -15,20 +15,45 @@ limitations under the License.
 */
 #include "oneflow/core/framework/to_string.h"
 #include "oneflow/core/job/global_for.h"
-#include "oneflow/core/job_rewriter/op_graph_pass.h"
+#include "oneflow/core/job_rewriter/job_pass.h"
 
 namespace oneflow {
 
 namespace {
 
-class DumpVariableInfoPass final : public OpGraphPass {
+std::string GetParallelDistributionString(const VariableOpConf& conf,
+                                          const ParallelDesc& parallel_desc) {
+  const bool has_parallel_distribution_conf = (conf.parallel_distribution_size() != 0);
+  const int64_t num_axes = parallel_desc.hierarchy()->NumAxes();
+  if (has_parallel_distribution_conf) { CHECK_EQ(conf.parallel_distribution_size(), num_axes); }
+  std::string parallel_distribution_str;
+  FOR_RANGE(int64_t, i, 0, num_axes) {
+    if (has_parallel_distribution_conf) {
+      parallel_distribution_str += conf.parallel_distribution(i);
+    } else {
+      parallel_distribution_str += "B";
+    }
+    if (i != num_axes - 1) { parallel_distribution_str += ", "; }
+  }
+  return parallel_distribution_str;
+}
+
+class DumpVariableInfoPass final : public JobPass {
  public:
   DumpVariableInfoPass() = default;
   ~DumpVariableInfoPass() override = default;
-  bool IsEnabled() const override {
+
+  bool IsEnabled(const JobPassCtx& ctx) const {
     return Global<ResourceDesc, ForSession>::Get()->enable_debug_mode();
   }
-  Maybe<void> Apply(const OpGraph& op_graph, JobBuilder* job_builder) const override;
+  Maybe<void> Apply(const OpGraph& op_graph, JobBuilder* job_builder) const;
+
+  Maybe<void> Apply(Job* job, JobPassCtx* ctx) const override {
+    if (!IsEnabled(*ctx)) { return Maybe<void>::Ok(); }
+    const OpGraph op_graph(*job);
+    JobBuilder job_builder(job);
+    return Apply(op_graph, &job_builder);
+  }
 };
 
 Maybe<void> DumpVariableInfoPass::Apply(const OpGraph& op_graph, JobBuilder* job_builder) const {
@@ -36,9 +61,9 @@ Maybe<void> DumpVariableInfoPass::Apply(const OpGraph& op_graph, JobBuilder* job
   const std::string sep = "\t";
   auto log_stream =
       TeePersistentLogStream::Create("variable_table_" + std::to_string(GlobalJobDesc().job_id()));
-  (*log_stream) << "id" << sep << "name" << sep << "device_tag" << sep << "parallel_num" << sep
-                << "distribute" << sep << "data_type" << sep << "shape" << sep << "elem_cnt" << sep
-                << "size"
+  (*log_stream) << "id" << sep << "name" << sep << "device_tag" << sep << "parallel_hierarchy"
+                << sep << "distribute" << sep << "data_type" << sep << "shape" << sep << "elem_cnt"
+                << sep << "size"
                 << "\n";
   JUST(op_graph.TopoForEachNodeWithErrorCaptured([&](const OpNode* node) -> Maybe<void> {
     const OperatorConf& op_conf = node->op().op_conf();
@@ -50,13 +75,9 @@ Maybe<void> DumpVariableInfoPass::Apply(const OpGraph& op_graph, JobBuilder* job
     (*log_stream) << sep;
     (*log_stream) << op_conf.device_tag();
     (*log_stream) << sep;
-    (*log_stream) << std::to_string(node->parallel_desc().parallel_num());
+    (*log_stream) << node->parallel_desc().hierarchy()->DebugStr();
     (*log_stream) << sep;
-    if (conf.split_axis().has_value()) {
-      (*log_stream) << "S(" << std::to_string(conf.split_axis().value()) << ")";
-    } else {
-      (*log_stream) << "B";
-    }
+    (*log_stream) << GetParallelDistributionString(conf, node->parallel_desc());
     (*log_stream) << sep;
     (*log_stream) << DataType_Name(conf.data_type());
     (*log_stream) << sep;
@@ -75,6 +96,6 @@ Maybe<void> DumpVariableInfoPass::Apply(const OpGraph& op_graph, JobBuilder* job
 
 }  // namespace
 
-REGISTER_FUNCTION_PASS("DumpVariableInfoPass", DumpVariableInfoPass);
+REGISTER_JOB_PASS("DumpVariableInfoPass", DumpVariableInfoPass);
 
 }  // namespace oneflow

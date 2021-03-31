@@ -22,22 +22,28 @@ namespace oneflow {
 void ReturnOp::InitFromOpConf() {
   CHECK(op_conf().has_return_conf());
   EnrollInputBn("in");
-  EnrollOutputBn("out");
+  EnrollOutputBn("out")->set_is_mutable(true);
 }
 
-Maybe<void> ReturnOp::InferBlobDescs(
-    std::function<BlobDesc*(const std::string&)> GetBlobDesc4BnInOp,
+namespace {
+
+Maybe<void> InferBlobDescs(const std::function<BlobDesc*(const std::string&)>& BlobDesc4BnInOp) {
+  *BlobDesc4BnInOp("out") = *BlobDesc4BnInOp("in");
+  return Maybe<void>::Ok();
+}
+
+}  // namespace
+
+Maybe<void> ReturnOp::InferLogicalOutBlobDescs(
+    const std::function<BlobDesc*(const std::string&)>& BlobDesc4BnInOp,
+    const ParallelDesc& parallel_desc) const {
+  return InferBlobDescs(BlobDesc4BnInOp);
+}
+
+Maybe<void> ReturnOp::InferOutBlobDescs(
+    const std::function<BlobDesc*(const std::string&)>& GetBlobDesc4BnInOp,
     const ParallelContext* parallel_ctx) const {
-  *GetBlobDesc4BnInOp("out") = *GetBlobDesc4BnInOp("in");
-  return Maybe<void>::Ok();
-}
-
-const PbMessage& ReturnOp::GetCustomizedConf() const { return op_conf().return_conf(); }
-
-Maybe<void> ReturnOp::InferBatchAxis(
-    std::function<OptInt64*(const std::string&)> BatchAxis4BnInOp) const {
-  *BatchAxis4BnInOp("out") = *BatchAxis4BnInOp("in");
-  return Maybe<void>::Ok();
+  return InferBlobDescs(GetBlobDesc4BnInOp);
 }
 
 Maybe<void> ReturnOp::InferSbpSignature(

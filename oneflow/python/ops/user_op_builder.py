@@ -22,26 +22,27 @@ import oneflow.python.framework.hob as hob
 import oneflow.python.framework.remote_blob as remote_blob_util
 import oneflow.python.lib.core.enable_if as enable_if
 import oneflow.core.operator.op_conf_pb2 as op_conf_util
-import oneflow.core.framework.user_op_attr_pb2 as user_op_attr_util
+import oneflow.core.framework.user_op_attr_pb2 as attr_value_pb
+import oneflow_api.oneflow.core.framework.user_op_attr as user_op_attr_cfg
 import oneflow.core.register.logical_blob_id_pb2 as logical_blob_id_util
-import oneflow.core.common.shape_pb2 as shape_util
+import oneflow_api.oneflow.core.common.shape as shape_cfg
+import oneflow_api.oneflow.core.common.data_type as data_type_cfg
 import oneflow
 from oneflow.python.oneflow_export import oneflow_export
 import oneflow.python.framework.hob as hob
 import oneflow.python.experimental.name_scope as name_scope
-import oneflow.core.vm.instruction_pb2 as instr_util
 import oneflow.core.eager.eager_symbol_pb2 as eager_symbol_util
-import oneflow.python.vm.id_util as id_util
-import oneflow.python.eager.vm_util as vm_util
 import oneflow.python.eager.eager_blob_util as eager_blob_util
 import oneflow.python.lib.core.enable_if as enable_if
 import random
 import oneflow.python.eager.gradient_util as gradient_util
-import oneflow.python.eager.blob_register as blob_register_util
 import oneflow as flow
+import oneflow_api
 import traceback
 
-blob_register = blob_register_util.GetDefaultBlobRegister()
+from google.protobuf import text_format
+
+blob_register = oneflow_api.GetDefaultBlobRegister()
 
 
 class UserOp(object):
@@ -80,9 +81,36 @@ class UserOp(object):
                 lbi = logical_blob_id_util.LogicalBlobId()
                 lbi.op_name = self.op_conf_.name
                 lbi.blob_name = "{}_{}".format(output_arg_name, i)
-                remote_blob_list.append(self.MakeRemoteBlob(lbi))
+                remote_blob_obj = self.MakeRemoteBlob(lbi)
+                remote_blob_list.append(remote_blob_obj)
+                if flow.eager_execution_enabled():
+                    gradient_util.GetDefaultBackwardBlobRegister().TrySetObject4BlobName(
+                        remote_blob_obj.logical_blob_name, remote_blob_obj.blob_object
+                    )
 
         return tuple(remote_blob_list)
+
+    def RemoteBlobDict(self):
+        remote_blob_dict = {}
+        for k in self.op_conf_.user_conf.output:
+            if k not in self.output_arg_key_list_:
+                raise ValueError(
+                    "output_arg_name {} of {} op is not set in python op builder".format(
+                        k, self.op_conf_.name
+                    )
+                )
+
+        for output_arg_name in self.output_arg_key_list_:
+            assert output_arg_name in self.op_conf_.user_conf.output
+            if output_arg_name not in remote_blob_dict:
+                remote_blob_dict[output_arg_name] = []
+            for i in range(len(self.op_conf_.user_conf.output[output_arg_name].s)):
+                lbi = logical_blob_id_util.LogicalBlobId()
+                lbi.op_name = self.op_conf_.name
+                lbi.blob_name = "{}_{}".format(output_arg_name, i)
+                remote_blob_dict[output_arg_name].append(self.MakeRemoteBlob(lbi))
+
+        return remote_blob_dict
 
     def SoleOutputBlob(self):
         blobs = self.RemoteBlobList()
@@ -105,19 +133,41 @@ class UserOpModule(object):
 
 @oneflow_export("user_op_builder")
 def api_user_op_builder(op_name):
+    r"""Build a wrapper of user op.
+
+    For instance::
+        def myargmax(
+            input: oneflow_api.BlobDesc) -> oneflow_api.BlobDesc:
+            return (
+            flow.user_op_builder("myargmax")
+            .Op("argmax")
+            .Input("in", [input])
+            .Output("out")
+            .Build()
+            .InferAndTryRun()
+            .RemoteBlobList()[0]
+            ) 
+        
+    Args:
+        op_name (str): name of new user op
+
+    Returns:
+        UserOpConfBuilder: `UserOpConfBuilder` object used to build a wrapper of user op.
+    """
     api = enable_if.unique([lazy_user_op_builder, eager_user_op_builder])
     return api(op_name)
 
 
 @enable_if.condition(hob.in_global_mode & ~hob.eager_execution_enabled)
 def lazy_user_op_builder(op_name):
-    job_name = c_api_util.JobBuildAndInferCtx_GetCurrentJobName()
-    return UserOpConfBuilder(job_name, op_name, LazyUserOp)
+    job_name = oneflow_api.JobBuildAndInferCtx_GetCurrentJobName()
+    op_name = name_scope.GetJobNameScopePrefix(job_name) + op_name
+    return UserOpConfBuilder(LazyUserOp, op_name, None)
 
 
 class LazyUserOp(UserOp):
-    def __init__(self, op_name):
-        UserOp.__init__(self, op_name)
+    def __init__(self, op_name, op_type_name):
+        UserOp.__init__(self, op_name, op_type_name)
 
     def InferAndTryRun(self):
         compile_context.CurJobAddOp(self.op_conf_)
@@ -129,13 +179,14 @@ class LazyUserOp(UserOp):
 
 @enable_if.condition(hob.in_global_mode & hob.eager_execution_enabled)
 def eager_user_op_builder(op_name):
-    job_name = c_api_util.JobBuildAndInferCtx_GetCurrentJobName()
-    return UserOpConfBuilder(job_name, op_name, EagerUserOp)
+    job_name = oneflow_api.JobBuildAndInferCtx_GetCurrentJobName()
+    op_name = name_scope.GetJobNameScopePrefix(job_name) + op_name
+    return UserOpConfBuilder(EagerUserOp, op_name, None)
 
 
 class EagerUserOp(UserOp):
-    def __init__(self, op_name):
-        UserOp.__init__(self, op_name)
+    def __init__(self, op_name, op_type_name):
+        UserOp.__init__(self, op_name, op_type_name)
 
     def InferAndTryRun(self):
         interpret_util.Forward(self.op_conf_)
@@ -145,18 +196,16 @@ class EagerUserOp(UserOp):
         return remote_blob_util.EagerLogicalBlob(lbi)
 
 
-in_physical_placement = hob.env_initialized & hob.is_current_placement_physical
-
-
 @oneflow_export("consistent_user_op_builder")
-def consistent_user_op_builder(op_name):
-    job_name = c_api_util.JobBuildAndInferCtx_GetCurrentJobName()
-    return UserOpConfBuilder(job_name, op_name, ConsistentUserOp)
+def api_consistent_user_op_builder(op_name):
+    job_name = oneflow_api.JobBuildAndInferCtx_GetCurrentJobName()
+    op_name = name_scope.GetJobNameScopePrefix(job_name) + op_name
+    return UserOpConfBuilder(ConsistentUserOp, op_name, None)
 
 
 class ConsistentUserOp(UserOp):
-    def __init__(self, op_name):
-        UserOp.__init__(self, op_name)
+    def __init__(self, op_name, op_type_name):
+        UserOp.__init__(self, op_name, op_type_name)
 
     def InferAndTryRun(self):
         interpret_util.ConsistentForward(self.op_conf_)
@@ -167,9 +216,8 @@ class ConsistentUserOp(UserOp):
 
 
 class UserOpConfBuilder(object):
-    def __init__(self, job_name, op_name, user_op_class):
-        name_scope_prefix = name_scope.GetJobNameScopePrefix(job_name)
-        self.user_op_ = user_op_class(name_scope_prefix + op_name)
+    def __init__(self, user_op_or_module_class, op_name, op_type_name):
+        self.user_op_ = user_op_or_module_class(op_name, op_type_name)
 
     def CheckAndComplete(self):
         assert self.user_op_.op_conf_.user_conf.op_type_name != ""
@@ -179,9 +227,18 @@ class UserOpConfBuilder(object):
         return self
 
     def Build(self):
+        r"""Build op when in/output and other attribute set up.
+
+        Returns:
+            self
+
+        """
         return self.CheckAndComplete().user_op_
 
     def OpName(self, op_name):
+        job_name = oneflow_api.JobBuildAndInferCtx_GetCurrentJobName()
+        op_name = name_scope.GetJobNameScopePrefix(job_name) + op_name
+
         self.user_op_.op_conf_.name = op_name
         user_conf = self.user_op_.op_conf_.user_conf
 
@@ -193,10 +250,27 @@ class UserOpConfBuilder(object):
         return self
 
     def Op(self, op_type_name):
+        r"""set typename of op
+
+        Args:
+            op_type_name (string): op type name
+
+        Returns:
+            self
+        """
         self.user_op_.op_conf_.user_conf.op_type_name = op_type_name
         return self
 
     def Input(self, input_name, input_blob_list):
+        r"""Set input blob of op
+       
+        Args:
+            input_name (str): input name of blob
+            input_blob_list : list of blobs
+
+        Returns:
+            self
+        """
         assert isinstance(input_blob_list, (tuple, list))
         input_conf = self.user_op_.op_conf_.user_conf.input
         input_conf[input_name].ClearField("s")
@@ -215,6 +289,15 @@ class UserOpConfBuilder(object):
         return self
 
     def Output(self, output_name, num=1):
+        r"""Set output blob of op
+
+        Args:
+            output_name (str): name of output blob
+            num (int, optional):  Defaults to 1.
+
+        Returns:
+            self
+        """
         assert isinstance(num, int) and num >= 1
         out_lbns = []
         for i in range(num):
@@ -225,94 +308,122 @@ class UserOpConfBuilder(object):
         return self
 
     def Attr(self, attr_name, attr_value, attr_type_name=None):
+        r"""Set value of op's attribute.
+
+        Args:
+            attr_name (str): attribute name of op
+            attr_value (Any): attribute value of op
+
+        Raises:
+            ValueError: raised when value is not idential to op's attribute type.
+
+        Returns:
+            [type]: [description]
+        """
         if attr_type_name != None:
             print(
                 """WARNING: Argument 'attr_type_name' of UserOpConfBuilder.Attr has been deprecated. Please remove it.
-For instance:
-        -     .Attr("out_num", out_num, "AttrTypeInt64")
-        +     .Attr("out_num", out_num)
-                """
+            
+            For instance:
+                -     .Attr("out_num", out_num, "AttrTypeInt64")
+                +     .Attr("out_num", out_num)
+                        """
             )
             print(traceback.format_stack()[-2])
 
-        attribute = user_op_attr_util.UserOpAttrVal()
+        attribute = user_op_attr_cfg.AttrValue()
         assert isinstance(attr_name, str)
-        attr_type = c_api_util.GetUserOpAttrType(
+        attr_type = oneflow_api.GetUserOpAttrType(
             self.user_op_.op_conf_.user_conf.op_type_name, attr_name
         )
-        if attr_type == user_op_attr_util.kAtInt32:
+        if attr_type == user_op_attr_cfg.kAtInt32:
             assert isinstance(attr_value, int)
-            attribute.at_int32 = attr_value
-        elif attr_type == user_op_attr_util.kAtInt64:
+            attribute.set_at_int32(attr_value)
+        elif attr_type == user_op_attr_cfg.kAtInt64:
             assert isinstance(attr_value, int)
-            attribute.at_int64 = attr_value
-        elif attr_type == user_op_attr_util.kAtBool:
+            attribute.set_at_int64(attr_value)
+        elif attr_type == user_op_attr_cfg.kAtBool:
             assert isinstance(attr_value, bool)
-            attribute.at_bool = attr_value
-        elif attr_type == user_op_attr_util.kAtFloat:
-            assert isinstance(attr_value, float)
-            attribute.at_float = attr_value
-        elif attr_type == user_op_attr_util.kAtDouble:
-            assert isinstance(attr_value, float)
-            attribute.at_double = attr_value
-        elif attr_type == user_op_attr_util.kAtString:
+            attribute.set_at_bool(attr_value)
+        elif attr_type == user_op_attr_cfg.kAtFloat:
+            assert isinstance(attr_value, (float, int))
+            attribute.set_at_float(attr_value)
+        elif attr_type == user_op_attr_cfg.kAtDouble:
+            assert isinstance(attr_value, (float, int))
+            attribute.set_at_double(attr_value)
+        elif attr_type == user_op_attr_cfg.kAtString:
             assert isinstance(attr_value, str)
-            attribute.at_string = attr_value
-        elif attr_type == user_op_attr_util.kAtShape:
+            attribute.set_at_string(attr_value)
+        elif attr_type == user_op_attr_cfg.kAtShape:
             assert isinstance(attr_value, (tuple, list))
-            assert all(isinstance(x, int) for x in attr_value)
-            attribute.at_shape.dim[:] = list(attr_value)
-        elif attr_type == user_op_attr_util.kAtDataType:
-            assert (
-                isinstance(attr_value.oneflow_proto_dtype, int)
-                and attr_value in oneflow.dtypes()
+            attribute_mutable_at_shape = attribute.mutable_at_shape()
+            for x in attr_value:
+                assert isinstance(x, int)
+                attribute_mutable_at_shape.add_dim(x)
+        elif attr_type == user_op_attr_cfg.kAtDataType:
+            assert attr_value in oneflow.dtypes()
+            attr_value = oneflow_api.deprecated.GetProtoDtype4OfDtype(attr_value)
+            assert isinstance(attr_value, int)
+            attribute.set_at_data_type(data_type_cfg.DataType(attr_value))
+        elif attr_type == user_op_attr_cfg.kAtListInt32:
+            assert isinstance(attr_value, (tuple, list))
+            attribute_mutable_at_list_int32 = attribute.mutable_at_list_int32()
+            for x in attr_value:
+                assert isinstance(x, int)
+                attribute_mutable_at_list_int32.add_val(x)
+        elif attr_type == user_op_attr_cfg.kAtListInt64:
+            assert isinstance(attr_value, (tuple, list))
+            attribute_mutable_at_list_int64 = attribute.mutable_at_list_int64()
+            for x in attr_value:
+                assert isinstance(x, int)
+                attribute_mutable_at_list_int64.add_val(x)
+        elif attr_type == user_op_attr_cfg.kAtListFloat:
+            assert isinstance(attr_value, (tuple, list))
+            attribute_mutable_at_list_float = attribute.mutable_at_list_float()
+            for x in attr_value:
+                assert isinstance(x, (float, int))
+                attribute_mutable_at_list_float.add_val(x)
+        elif attr_type == user_op_attr_cfg.kAtListDataType:
+            assert isinstance(attr_value, (tuple, list))
+            attribute_mutable_at_list_data_type = attribute.mutable_at_list_data_type()
+            for x in attr_value:
+                assert x in oneflow.dtypes()
+                x = oneflow_api.deprecated.GetProtoDtype4OfDtype(x)
+                assert isinstance(x, int)
+                attribute_mutable_at_list_data_type.add_val(data_type_cfg.DataType(x))
+        elif attr_type == user_op_attr_cfg.kAtListShape:
+            assert isinstance(attr_value, (tuple, list))
+            attribute_mutable_at_list_shape = (
+                attribute.mutable_at_list_shape().mutable_val()
             )
-            attribute.at_data_type = attr_value.oneflow_proto_dtype
-        elif attr_type == user_op_attr_util.kAtListInt32:
+            for x in attr_value:
+                assert isinstance(x, (tuple, list))
+                shape = shape_cfg.ShapeProto()
+                for dim in x:
+                    assert isinstance(dim, int)
+                    shape.add_dim(dim)
+                attribute_mutable_at_list_shape.Add().CopyFrom(shape)
+        elif attr_type == user_op_attr_cfg.kAtListString:
             assert isinstance(attr_value, (tuple, list))
-            assert all(isinstance(x, int) for x in attr_value)
-            attribute.at_list_int32.val[:] = list(attr_value)
-        elif attr_type == user_op_attr_util.kAtListInt64:
-            assert isinstance(attr_value, (tuple, list))
-            assert all(isinstance(x, int) for x in attr_value)
-            attribute.at_list_int64.val[:] = list(attr_value)
-        elif attr_type == user_op_attr_util.kAtListFloat:
-            assert isinstance(attr_value, (tuple, list))
-            assert all(isinstance(x, float) for x in attr_value)
-            attribute.at_list_float.val[:] = list(attr_value)
-        elif attr_type == user_op_attr_util.kAtListDataType:
-            assert isinstance(attr_value, (tuple, list))
-            assert all(
-                isinstance(x.oneflow_proto_dtype, int) and x in oneflow.dtypes()
-                for x in attr_value
-            )
-            attribute.at_list_data_type.val[:] = list(
-                [x.oneflow_proto_dtype for x in attr_value]
-            )
-        elif attr_type == user_op_attr_util.kAtListShape:
-            assert isinstance(attr_value, (tuple, list))
-            assert all(isinstance(x, tuple) or isinstance(x, list) for x in attr_value)
-            for i in range(len(attr_value)):
-                shape = shape_util.ShapeProto()
-                shape.dim[:] = list(attr_value[i])
-                attribute.at_list_shape.val.append(shape)
-        elif attr_type == user_op_attr_util.kAtListString:
-            assert isinstance(attr_value, (tuple, list))
-            assert all(isinstance(x, str) for x in attr_value)
-            attribute.at_list_string.val[:] = list(attr_value)
+            attribute_mutable_at_list_string = attribute.mutable_at_list_string()
+            for x in attr_value:
+                assert isinstance(x, str)
+                attribute_mutable_at_list_string.add_val(x)
         else:
             raise ValueError("Invalid op attribute type {}".format(attr_type))
 
-        self.user_op_.op_conf_.user_conf.attr[attr_name].CopyFrom(attribute)
+        self.user_op_.op_conf_.user_conf.attr[attr_name].CopyFrom(
+            text_format.Parse(str(attribute), attr_value_pb.AttrValue())
+        )
         return self
 
 
 @oneflow_export("user_op_module_builder")
-def api_user_op_module_builder(op_name):
+def api_user_op_module_builder(op_type_name):
     api = enable_if.unique(
         [lazy_user_op_module_builder, eager_logical_user_op_module_builder]
     )
-    return api(op_name)
+    return api(op_type_name)
 
 
 class UserOpModuleBuilder(UserOpConfBuilder):
@@ -324,22 +435,31 @@ class UserOpModuleBuilder(UserOpConfBuilder):
     def user_op_module(self):
         return self.user_op_
 
+    def Op(self, op_type_name):
+        raise ValueError(
+            "user op module builder of {} can't call '.Op(op_type_name)' method".format(
+                op_type_name
+            )
+        )
+
 
 @enable_if.condition(hob.in_global_mode & ~hob.eager_execution_enabled)
-def lazy_user_op_module_builder(op_name):
-    job_name = c_api_util.JobBuildAndInferCtx_GetCurrentJobName()
-    return UserOpModuleBuilder(job_name, op_name, LazyUserOpModule)
+def lazy_user_op_module_builder(op_type_name):
+    job_name = oneflow_api.JobBuildAndInferCtx_GetCurrentJobName()
+    op_name = name_scope.GetJobNameScopePrefix(job_name) + op_type_name
+    return UserOpModuleBuilder(LazyUserOpModule, op_name, op_type_name)
 
 
 @enable_if.condition(hob.in_global_mode & hob.eager_execution_enabled)
-def eager_logical_user_op_module_builder(op_name):
-    job_name = c_api_util.JobBuildAndInferCtx_GetCurrentJobName()
-    return UserOpModuleBuilder(job_name, op_name, EagerLogicalUserOpModule)
+def eager_logical_user_op_module_builder(op_type_name):
+    job_name = oneflow_api.JobBuildAndInferCtx_GetCurrentJobName()
+    op_name = name_scope.GetJobNameScopePrefix(job_name) + op_type_name
+    return UserOpModuleBuilder(EagerLogicalUserOpModule, op_name, op_type_name)
 
 
 class LazyUserOpModule(UserOpModule, UserOp):
-    def __init__(self, op_type_name):
-        UserOp.__init__(self, op_type_name, op_type_name)
+    def __init__(self, op_name, op_type_name):
+        UserOp.__init__(self, op_name, op_type_name)
 
     def InitOpKernel(self):
         self.set_opkernel_object(None)
@@ -354,14 +474,20 @@ class LazyUserOpModule(UserOpModule, UserOp):
 
 
 class EagerLogicalUserOpModule(UserOpModule, UserOp):
-    def __init__(self, op_type_name):
-        UserOp.__init__(self, op_type_name, op_type_name)
+    def __init__(self, op_name, op_type_name):
+        UserOp.__init__(self, op_name, op_type_name)
 
     def InitOpKernel(self):
         def BuildInstruction(builder):
-            self.set_opkernel_object(builder.NewOpKernelObject(self.op_conf))
+            if not isinstance(
+                self.op_conf, oneflow_api.oneflow.core.operator.op_conf.OperatorConf
+            ):
+                cfg_op_conf = oneflow_api.deprecated.MakeOpConfByString(
+                    str(self.op_conf)
+                )
+            self.set_opkernel_object(builder.NewOpKernelObject(cfg_op_conf))
 
-        vm_util.LogicalRun(BuildInstruction)
+        oneflow_api.deprecated.LogicalRun(BuildInstruction)
 
     def InferAndTryRun(self):
         assert hob.in_global_mode(None)
@@ -385,19 +511,21 @@ def api_consistent_user_op_module_builder(op_type_name):
 
 @enable_if.condition(hob.in_global_mode & ~hob.eager_execution_enabled)
 def lazy_consistent_user_op_module_builder(op_type_name):
-    job_name = c_api_util.JobBuildAndInferCtx_GetCurrentJobName()
-    return UserOpModuleBuilder(job_name, op_type_name, LazyConsistentUserOpModule)
+    job_name = oneflow_api.JobBuildAndInferCtx_GetCurrentJobName()
+    op_name = name_scope.GetJobNameScopePrefix(job_name) + op_type_name
+    return UserOpModuleBuilder(LazyConsistentUserOpModule, op_name, op_type_name)
 
 
 @enable_if.condition(hob.in_global_mode & hob.eager_execution_enabled)
 def eager_consistent_user_op_module_builder(op_type_name):
-    job_name = c_api_util.JobBuildAndInferCtx_GetCurrentJobName()
-    return UserOpModuleBuilder(job_name, op_type_name, EagerConsistentUserOpModule)
+    job_name = oneflow_api.JobBuildAndInferCtx_GetCurrentJobName()
+    op_name = name_scope.GetJobNameScopePrefix(job_name) + op_type_name
+    return UserOpModuleBuilder(EagerConsistentUserOpModule, op_name, op_type_name)
 
 
 class LazyConsistentUserOpModule(UserOpModule, UserOp):
-    def __init__(self, op_type_name):
-        UserOp.__init__(self, op_type_name, op_type_name)
+    def __init__(self, op_name, op_type_name):
+        UserOp.__init__(self, op_name, op_type_name)
 
     def InitOpKernel(self):
         self.set_opkernel_object(None)
@@ -412,14 +540,20 @@ class LazyConsistentUserOpModule(UserOpModule, UserOp):
 
 
 class EagerConsistentUserOpModule(UserOpModule, UserOp):
-    def __init__(self, op_type_name):
-        UserOp.__init__(self, op_type_name, op_type_name)
+    def __init__(self, op_name, op_type_name):
+        UserOp.__init__(self, op_name, op_type_name)
 
     def InitOpKernel(self):
         def BuildInstruction(builder):
-            self.set_opkernel_object(builder.NewOpKernelObject(self.op_conf))
+            if not isinstance(
+                self.op_conf, oneflow_api.oneflow.core.operator.op_conf.OperatorConf
+            ):
+                cfg_op_conf = oneflow_api.deprecated.MakeOpConfByString(
+                    str(self.op_conf)
+                )
+            self.set_opkernel_object(builder.NewOpKernelObject(cfg_op_conf))
 
-        vm_util.LogicalRun(BuildInstruction)
+        oneflow_api.deprecated.LogicalRun(BuildInstruction)
 
     def InferAndTryRun(self):
         assert hob.in_global_mode(None)
