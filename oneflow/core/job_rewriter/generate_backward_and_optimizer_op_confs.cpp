@@ -178,6 +178,7 @@ Maybe<void> GenerateBackwardAndOptimizerOpConfs::Apply(Job* job, JobPassCtx* ctx
   OpBlobArgPairs identical_sbp_oba_pairs;
   job_builder = JUST(WithCalculationPassScope(kBackwardPass, job, [&]() -> Maybe<void> {
     CHECK(old_job_builder == job_builder.get());  // Check this lambda never been async called
+    // s_note: 生成后向grad 计算 op
     JUST(AutoGrad(ctx, op_graph, job_builder.get(), &lbi2diff_lbi, &identical_sbp_oba_pairs));
     return Maybe<void>::Ok();
   }));
@@ -192,6 +193,7 @@ Maybe<void> GenerateBackwardAndOptimizerOpConfs::Apply(Job* job, JobPassCtx* ctx
     ScaleModelDiffByLossScale(ctx, op_graph, job_builder.get(), &model_lbi2model_diff_lbi);
     JUST(CountNotFiniteIfNeeded(ctx, op_graph, job_builder.get(), model_lbi2model_diff_lbi));
     RegularizeGradient(op_graph, job_builder.get(), &model_lbi2model_diff_lbi);
+    // s_note: 对于每个optimizer和每个variable，生成其optimize_op
     for (const auto& optimizer_conf : job->job_conf().train_conf().optimizer_conf()) {
       HashMap<LogicalBlobId, LogicalBlobId> cur_model_lbi2model_diff_lbi;
       FilterCurModelLbi2ModelDiffLbiByName(optimizer_conf.variable_op_names(),
@@ -209,6 +211,8 @@ Maybe<void> GenerateBackwardAndOptimizerOpConfs::Apply(Job* job, JobPassCtx* ctx
         }
         const std::string& model_diff_lbn = GenLogicalBlobName(
             cur_model_lbi2model_diff_lbi.at(var_op->BnInOp2Lbi(var_op->SoleObn())));
+        // s_note: 增加该optimizer对该variable的optimizer_op
+        // s_note: 对调用注册的optimizer_op，如sgd_optm.cpp中
         AddOptimizerOp(ctx, *op_node, model_diff_lbn, optimizer_conf, job_builder.get());
       });
     }
