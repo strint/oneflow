@@ -213,6 +213,7 @@ Maybe<void> GenerateBackwardAndOptimizerOpConfs::Apply(Job* job, JobPassCtx* ctx
             cur_model_lbi2model_diff_lbi.at(var_op->BnInOp2Lbi(var_op->SoleObn())));
         // s_note: 增加该optimizer对该variable的optimizer_op
         // s_note: 对调用注册的optimizer_op，如sgd_optm.cpp中
+        //         也是把optimizer_op加到job的net中
         AddOptimizerOp(ctx, *op_node, model_diff_lbn, optimizer_conf, job_builder.get());
       });
     }

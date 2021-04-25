@@ -42,6 +42,8 @@ void CheckFunctionConfig(const JobConfigProto& job_conf) {
 
 }  // namespace
 
+// s_note: 主要是在Global中注册了一个JobDesc
+//         创建的JobDesc中只是保存了下当前的job_conf和job_id
 JobDesc::JobDesc(const JobConfigProto& job_conf, int64_t job_id)
     : job_conf_(job_conf), job_id_(job_id), symbol_id_(Error::SymbolIdUninitialized()) {
   CHECK_JUST(Init());

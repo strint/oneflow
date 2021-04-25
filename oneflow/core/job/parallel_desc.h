@@ -38,6 +38,7 @@ namespace cfg {
 class ParallelConf;
 }
 
+// s_note: 跟并行相关的配置，包括机器id和设备id
 class ParallelDesc final {
  public:
   ~ParallelDesc() = default;
