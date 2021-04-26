@@ -35,7 +35,7 @@ class ModelUpdateConfCompatiblePass final : public JobPass {
 
   Maybe<void> Apply(Job* job, JobPassCtx* ctx) const override {
     if (!IsEnabled(*ctx)) { return Maybe<void>::Ok(); }
-    // s_note: job被放入了
+    // s_note: job被放入了OpGraph，然后执行pass
     const OpGraph op_graph(*job);
     return Apply(op_graph, job);
   }
