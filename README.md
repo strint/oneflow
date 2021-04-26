@@ -1,3 +1,9 @@
+# Comments on OneFlow
+Comment format 
+```
+// note(github_id): comments
+```
+
 **OneFlow is a performance-centered and open-source deep learning framework.**
 
 - [Install OneFlow](#install-oneflow)
