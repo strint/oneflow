@@ -23,13 +23,13 @@ namespace oneflow {
 
 template<typename NodeType, typename EdgeType>
 void Connect(NodeType* src_node, EdgeType* edge, NodeType* dst_node) {
-  // s_note: src_node增加out edge
+  // note(strint): src_node增加out edge
   CHECK(src_node->out_edges_.insert(edge).second);
-  // s_note: dst_node增加in edge
+  // note(strint): dst_node增加in edge
   CHECK(dst_node->in_edges_.insert(edge).second);
   CHECK(edge->src_node_ == nullptr);
   CHECK(edge->dst_node_ == nullptr);
-  // s_note: 本edge记录src_node和dst_node
+  // note(strint): 本edge记录src_node和dst_node
   edge->src_node_ = src_node;
   edge->dst_node_ = dst_node;
 }

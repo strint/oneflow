@@ -28,14 +28,14 @@ class ModelUpdateConfCompatiblePass final : public JobPass {
   ModelUpdateConfCompatiblePass() = default;
   ~ModelUpdateConfCompatiblePass() override = default;
 
-  // s_note: 只有训练才执行该pass
+  // note(strint): 只有训练才执行该pass
   bool IsEnabled(const JobPassCtx& ctx) const { return ctx.job_desc().IsTrain(); }
 
   Maybe<void> Apply(const OpGraph& op_graph, Job* job) const;
 
   Maybe<void> Apply(Job* job, JobPassCtx* ctx) const override {
     if (!IsEnabled(*ctx)) { return Maybe<void>::Ok(); }
-    // s_note: job被放入了OpGraph，然后执行pass
+    // note(strint): job被放入了OpGraph，然后执行pass
     const OpGraph op_graph(*job);
     return Apply(op_graph, job);
   }

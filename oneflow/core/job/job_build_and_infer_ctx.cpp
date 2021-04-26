@@ -569,7 +569,7 @@ Maybe<OpAttribute> JobBuildAndInferCtx::AddAndInferOp(const OperatorConf& op_con
   CHECK_NE_OR_RETURN(op_conf.device_tag(), "invalid_device")
       << Error::OpConfDeviceTagNoSetError() << "op_name: " << op_name << " not set device tag";
 
-  // s_note: 构建了Operator
+  // note(strint): 构建了Operator
   op_name2op_.emplace(op_name, ConstructOp(op_conf));
   Operator* op = op_name2op_.at(op_name).get();
 
@@ -950,22 +950,22 @@ Maybe<LogicalBlobId> EagerJobBuildAndInferCtx::FindOrCreateMirroredLbiFromCompat
   return mirrored_lbi;
 }
 
-// s_note: 在一个job创建完成后，进行图逻辑图优化
+// note(strint): 在一个job创建完成后，进行图逻辑图优化
 Maybe<void> LazyJobBuildAndInferCtx::Complete() {
-  // s_note: 清理掉Global中之前的JobDesc
+  // note(strint): 清理掉Global中之前的JobDesc
   CHECK_NOTNULL(Global<JobDesc>::Get());
   Global<JobDesc>::Delete();
-  // s_note: 把当前的job记录到Global<JobDesc>中，提供一个当前的job scope信息
+  // note(strint): 把当前的job记录到Global<JobDesc>中，提供一个当前的job scope信息
   //         通过RAII来创建和释放
   auto scope = std::make_unique<GlobalJobDescScope>(mut_job()->job_conf(), job_id());
-  // s_note: 把当前的JobDesc获取，并放到job_pass_ctx中
+  // note(strint): 把当前的JobDesc获取，并放到job_pass_ctx中
   JobPassCtx job_pass_ctx(GlobalJobDesc());
-  // s_note: DoPass是一个lambda，根据pass名字调用对应的pass
+  // note(strint): DoPass是一个lambda，根据pass名字调用对应的pass
   auto DoPass = [&](const std::string& pass_name) -> Maybe<void> {
     // 传入了mutable的job和job_pass_ctx的引用
     return JobPass4Name(pass_name)(mut_job(), &job_pass_ctx);
   };
-  // s_note: 确定是用户定义的job function
+  // note(strint): 确定是用户定义的job function
   if (GlobalJobDesc().Bool("__is_user_function__")) {
     // s_note：这查找注册的pass并执行
     JUST(DoPass("ModelUpdateConfCompatiblePass"));
@@ -979,7 +979,7 @@ Maybe<void> LazyJobBuildAndInferCtx::Complete() {
     JUST(DoPass("AutoTrainStep"));
     JUST(DoPass("AutoLearningRate"));
     JUST(DoPass("QuantAwareTraining"));
-    // s_note: 后向和model update生成的pass
+    // note(strint): 后向和model update生成的pass
     JUST(DoPass("GenerateBackwardAndOptimizerOpConfs"));
     JUST(DoPass("AddSspVariableProxy"));
     JUST(DoPass("CheckpointingPass"));
@@ -999,7 +999,7 @@ Maybe<void> LazyJobBuildAndInferCtx::Complete() {
   return Maybe<void>::Ok();
 }
 
-// s_note: 在一个job创建完成后，进行图优化
+// note(strint): 在一个job创建完成后，进行图优化
 Maybe<void> EagerJobBuildAndInferCtx::Complete() {
   CHECK_NOTNULL(Global<JobDesc>::Get());
   Global<JobDesc>::Delete();

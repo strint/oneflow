@@ -44,7 +44,7 @@ Maybe<void> LazyInterpreter::Apply(const OpExpr& op_expr, const TensorTuple& inp
                      << " has not been supported in LazyInterpreter::Apply.";
 }
 
-// s_note: 和原有的compile_context.py中的CurJobAddOp做的事情类似
+// note(strint): 和原有的compile_context.py中的CurJobAddOp做的事情类似
 Maybe<void> LazyInterpreter::ApplyImpl(const BuiltinOpExpr& op_expr, const TensorTuple& inputs,
                                        TensorTuple* outputs) const {
   CHECK_EQ_OR_RETURN(inputs.size(), op_expr.input_num());
@@ -62,7 +62,7 @@ Maybe<void> LazyInterpreter::ApplyImpl(const BuiltinOpExpr& op_expr, const Tenso
   }
   const auto& session = JUST(GetDefaultSession());
   bool is_mirrored_strategy_enabled = JUST(session->IsMirroredStrategyEnabled());
-  // s_note: 把OperatorConf 加入Job，并做OpAttribute的推导，推导的结果返回给输出tensor使用
+  // note(strint): 把OperatorConf 加入Job，并做OpAttribute的推导，推导的结果返回给输出tensor使用
   const auto& op_attribute =
       JUST(OpInterpUtil::AddOpAndInferOpAttribute(*op_conf, is_mirrored_strategy_enabled));
   OpAttribute proto_op_attribute;

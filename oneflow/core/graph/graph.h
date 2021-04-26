@@ -23,7 +23,7 @@ limitations under the License.
 
 namespace oneflow {
 
-// s_note: Graph抽象基础类，提供图关联的各种方法
+// note(strint): Graph抽象基础类，提供图关联的各种方法
 template<typename NodeType, typename EdgeType>
 class Graph {
  public:

@@ -153,20 +153,20 @@ def lazy_oneflow_function(function_config=FunctionConfig()):
 
     def Decorator(job_func):
         if not hasattr(job_func, "__oneflow_function_signature__"):
-            # s_note: 获取job_func的signature，用于后面构建job的numpy输入需要的push job和user job需要的输入blob
+            # note(strint): 获取job_func的signature，用于后面构建job的numpy输入需要的push job和user job需要的输入blob
             job_func.__oneflow_function_signature__ = inspect.signature(job_func)
         oft_util.CheckGlobalFunctionAnnotation(job_func.__oneflow_function_signature__)
         sess = session_ctx.GetDefaultSession()
 
-        # s_note: wraps作用是的Func继承job_func的所有属性
+        # note(strint): wraps作用是的Func继承job_func的所有属性
         @functools.wraps(job_func)
         def Func(*args, **kwargs):
-            # s_note: job_func被调用时真实调用的是_RunLazyJob
+            # note(strint): job_func被调用时真实调用的是_RunLazyJob
             return _RunLazyJob(sess, job_func, *args, **kwargs)
 
-        # s_note: 把job_func对应的FunctionDesc添加到session
+        # note(strint): 把job_func对应的FunctionDesc添加到session
         sess.AddJob(_CloneFunctionDesc(function_config.function_desc, job_func))
-        # s_note: 列出job_func的所有attr name 或者 method name
+        # note(strint): 列出job_func的所有attr name 或者 method name
         for x in dir(job_func):
             if x.startswith("__oneflow_"):
                 setattr(Func, x, getattr(job_func, x))
@@ -235,7 +235,7 @@ def _RunEagerJob(session, function_desc, *args):
 
 
 def _RunLazyJob(session, job_func, *args, **kwargs):
-    # s_note: session (如果没有init过, 会尝试init一下) 然后运行job
+    # note(strint): session (如果没有init过, 会尝试init一下) 然后运行job
     #         这里lazy模式下，用户第一次调用一个job_func时，开始进行session的初始化，后面就不能再初始化job了，导致新增job成为问题
     #         init会做JobBuildAndInferCtx，把job在后台注册和创建好，然后把逻辑图构建好、并做了逻辑图优化
     return session.TryInit().LazyRun(job_func, *args, **kwargs)

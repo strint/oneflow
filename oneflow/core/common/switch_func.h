@@ -25,6 +25,9 @@ auto SwitchCase(Args&&... args) -> decltype(std::make_tuple(std::forward<Args>(a
   return std::make_tuple(std::forward<Args>(args)...);
 }
 
+// note(strint): 定制switch的模板
+//         用static std::map实现的
+//         依次传入每个switch的返回值类型、一个switch item的函数指针、函数模板特化方式、函数模板typename序列
 #define DEFINE_STATIC_SWITCH_FUNC(return_type, func_name, make_switch_entry, ctrv_seq, ...) \
   DEFINE_STATIC_SWITCH_FUNC_FROM_TUPLE(return_type, func_name, make_switch_entry,           \
                                        OF_PP_CAT((ctrv_seq, ##__VA_ARGS__), ))
