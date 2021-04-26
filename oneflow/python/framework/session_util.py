@@ -164,7 +164,7 @@ class Session(object):
         self.scope_attr_name2default_val_ = {k: v.default_val for k, v in items}
 
     def TryInit(self):
-        # s_note: 第一次run job时，会做session的init()
+        # note(strint): 第一次run job时，会做session的init()
         if self.status_ is SessionStatus.OPEN:
             self.Init()
         return self
@@ -198,14 +198,14 @@ class Session(object):
         if not oneflow_api.EagerExecutionEnabled():
             c_api_util.InitLazyGlobalSession(self.config_proto)
             for job_name, func_desc in self.job_name2function_desc_.items():
-                # s_note: lazy状态，编译每个job_fuc
+                # note(strint): lazy状态，编译每个job_fuc
                 #         注册并创建了job，维护在JobBuildAndInferCtx中
                 #         里面构建了逻辑图，并优化了逻辑图
                 compiler.Compile(self, func_desc, self.config_proto)
                 self.existed_module_names_ = set()
             self.job_name2var_name2var_blob_ = dict()
             assert len(self.job_name2function_desc_.items()) > 0
-            # s_note: 启动lazy的后台GlobalSession
+            # note(strint): 启动lazy的后台GlobalSession
             #         如果是master，发送所有job_set到控制网络；创建oneflow后台并初始化之；
             #         Oneflow::Init(job_set)会在master编译和merge Plan，并根据plan创建runtime；
             oneflow_api.StartLazyGlobalSession()
@@ -215,7 +215,7 @@ class Session(object):
             if not config_util.api_legacy_model_io_enabled():
                 check_point_v2.Init()
         else:
-            # s_note: eager下，没有编译
+            # note(strint): eager下，没有编译
             # s_quest: 看起来当前实现，一个session下，只能是eager和lazy二选一模式
             self.eager_config_proto_ctx_ = oneflow_api.LogicalConfigProtoContext(
                 str(self.config_proto)
@@ -287,11 +287,11 @@ class Session(object):
         oneflow_api.GetDefaultBlobRegister().ForceReleaseAll()
         self.backward_blob_register_.ForceReleaseAll()
 
-    # s_note: job func实际执行
+    # note(strint): job func实际执行
     #         arg中包含了输入的numpy数据
     def LazyRun(self, job_func, *arg):
         assert self.status_ is SessionStatus.RUNNING
-        # s_note: 调用了 LaunchUserJob
+        # note(strint): 调用了 LaunchUserJob
         remote_blobs = self.LaunchUserJob(job_func, *arg)
         if remote_blobs is None:
             return
@@ -314,18 +314,18 @@ class Session(object):
     def LaunchUserJob(self, job_func, *arg):
         assert self.status_ is SessionStatus.RUNNING
         job_name = job_func.__name__
-        # s_note: 会为numpy输入调用push，发送numpy arg
+        # note(strint): 会为numpy输入调用push，发送numpy arg
         push_util.AsyncPush(self, job_func, *arg)
-        # s_note: 调用launch运行job
+        # note(strint): 调用launch运行job
         self.LaunchJob(job_instance_util.MakeUserJobInstance(job_name))
         return job_func.__oneflow_output_remote_blobs__
 
     def LaunchJob(self, job_instance):
         assert self.status_ is SessionStatus.RUNNING
         self._IncRunningJobCnt()
-        # s_note: 给 job_instance 注册一个callback
+        # note(strint): 给 job_instance 注册一个callback
         job_instance.AddPostFinishCallback(lambda _: self._DecRunningJobCnt())
-        # s_note: 调用c++ runtime执行job
+        # note(strint): 调用c++ runtime执行job
         oneflow_api.LaunchJob(job_instance)
 
     def AsyncPush(self, op_name, push_data_cb):

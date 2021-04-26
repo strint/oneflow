@@ -41,20 +41,20 @@ import inspect
 
 
 def Compile(session, function_desc, config_proto):
-    # s_note: lazy使用的
+    # note(strint): lazy使用的
     #         一个新Job的创建
     with InterpretScope(session, function_desc, config_proto):
-        # s_note: 构建了job和逻辑图
+        # note(strint): 构建了job和逻辑图
         _CompileJob(session, function_desc)
-        # s_note: Complete中做了逻辑图优化
+        # note(strint): Complete中做了逻辑图优化
         oneflow_api.CurJobBuildAndInferCtx_Complete()
 
 
 def EagerRun(session, function_desc, config_proto, args):
-    # s_note: eager使用的
+    # note(strint): eager使用的
     with InterpretScope(session, function_desc, config_proto):
         ret = _InterpretGlobalFunction(function_desc, args)
-        # s_note: Complete中做了逻辑图优化
+        # note(strint): Complete中做了逻辑图优化
         oneflow_api.CurJobBuildAndInferCtx_Complete()
         session_ctx.GetDefaultSession().UpdateInfo4InterfaceOp()
     return ret
@@ -88,16 +88,16 @@ def InterpretScope(session, function_desc, config_proto):
     scope = scope_util.MakeInitialScope(
         job_conf, *tag_and_dev_ids, hierarchy, is_mirrored
     )
-    # s_note: 这里利用yield构造了一个contextmanager
-    # s_note: 打开了JobBuildAndInferCtx
+    # note(strint): 这里利用yield构造了一个contextmanager
+    # note(strint): 打开了JobBuildAndInferCtx
     with _JobBuildAndInferCtx(job_conf.job_name()), distribute_strategy:
         c_api_util.CurJobBuildAndInferCtx_SetJobConf(job_conf)
-        # s_note: 设置了当前mode为GLOBAL_MODE，表示进入了一个global_funciton
+        # note(strint): 设置了当前mode为GLOBAL_MODE，表示进入了一个global_funciton
         with runtime_mode.ModeScope(runtime_mode.GLOBAL_MODE):
             with scope_util.ScopeContext(scope):
-                # s_note: InterpretScope的with会执行到这里然后yield，这里就建立了三个with context
+                # note(strint): InterpretScope的with会执行到这里然后yield，这里就建立了三个with context
                 yield
-                # s_note: InterpretScope结束时，接着执行这里，这样就依次释放掉三个with context
+                # note(strint): InterpretScope结束时，接着执行这里，这样就依次释放掉三个with context
 
 
 def _SessionInitialScope(session, scope):
@@ -106,17 +106,17 @@ def _SessionInitialScope(session, scope):
     return session.NewCurrentScope(scope)
 
 
-# s_note: 编译job func
+# note(strint): 编译job func
 #         创建job输入输出的blob def
 #         运行func进行把operator创建和infer好，并加入到当前Job中
 def _CompileJob(session, function_desc):
     func = function_desc.job_func
-    # s_note: inspect从job_func获取的signature
+    # note(strint): inspect从job_func获取的signature
     parameters = func.__oneflow_function_signature__.parameters
-    # s_note: 给job_fuc增加了__oneflow_input_blob_defs__
+    # note(strint): 给job_fuc增加了__oneflow_input_blob_defs__
     #         根据job_func的输入参数列宾创建的input blob defs
     if len(parameters) == 0:
-        # s_note: job_func无参数
+        # note(strint): job_func无参数
         func.__oneflow_input_blob_defs__ = ()
     elif all(p.annotation is inspect._empty for _, p in parameters.items()):
         func.__oneflow_input_blob_defs__ = _GetArgDefault(func)
@@ -128,16 +128,16 @@ def _CompileJob(session, function_desc):
         raise NotImplementedError(
             "All parameters of global function should be annotated"
         )
-    # s_note: 根据input_blob_defs创建input blobs
+    # note(strint): 根据input_blob_defs创建input blobs
     inputs = _RecursiveMakeInputBlobs(func.__oneflow_input_blob_defs__)
-    # s_note: 调用job_func，输入inputs blobs，返回loss blob
+    # note(strint): 调用job_func，输入inputs blobs，返回loss blob
     #         里面调用的是OpBuilder，创建了OperatorConf，然后用 InferAndTryRun 方法加入了当前的Job中
     #         构建了logical graph
     ret = func(*inputs)
 
     return_annotation = func.__oneflow_function_signature__.return_annotation
     oft_util.CheckReturnByAnnotation(func.__name__, ret, return_annotation)
-    # s_note: 创建job_func返回blob,记录在out_put_remote_blobs
+    # note(strint): 创建job_func返回blob,记录在out_put_remote_blobs
     func.__oneflow_output_remote_blobs__ = _RecursiveMakeRetRemoteBlobs(
         ret, allow_cpu_return_op=function_desc.function_attribute.allow_cpu_return_op
     )
@@ -170,12 +170,12 @@ def _InterpretGlobalFunction(function_desc, args):
 
 @contextmanager
 def _JobBuildAndInferCtx(job_name):
-    # s_note: 开启一个job的创建
+    # note(strint): 开启一个job的创建
     c_api_util.JobBuildAndInferCtx_Open(job_name)
     try:
         yield
     finally:
-        # s_note: 结束一个job的创建
+        # note(strint): 结束一个job的创建
         oneflow_api.JobBuildAndInferCtx_Close()
 
 

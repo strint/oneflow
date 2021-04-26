@@ -89,7 +89,9 @@ class JobPassCtx {
   }
 
  private:
+  // note(strint): 当前的JobDesc
   const JobDesc* job_desc_;
+  // note(strint): JobPassState记录特定pass需要的特定状态
   HashMap<std::string, std::unique_ptr<JobPassState>> key2state_;
 };
 

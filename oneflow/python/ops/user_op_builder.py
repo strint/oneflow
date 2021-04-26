@@ -169,9 +169,9 @@ class LazyUserOp(UserOp):
     def __init__(self, op_name, op_type_name):
         UserOp.__init__(self, op_name, op_type_name)
 
-    # s_note: 把OpConf加入到了Job中
+    # note(strint): 把OpConf加入到了Job中
     def InferAndTryRun(self):
-        # s_note: 在UserOpBuilder config完成数据后，这里把OpetratorConf加上当前的Job
+        # note(strint): 在UserOpBuilder config完成数据后，这里把OpetratorConf加上当前的Job
         compile_context.CurJobAddOp(self.op_conf_)
         return self
 

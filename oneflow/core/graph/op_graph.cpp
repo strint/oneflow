@@ -55,11 +55,11 @@ const ParallelDistribution& OpNode::ParallelDistribution4Lbi(const LogicalBlobId
 OpNode::OpNode(const std::shared_ptr<const ParallelDesc>& parallel_desc,
                const OperatorConf& op_conf)
     : parallel_desc_(parallel_desc), // 记录 parallel_desc
-      // s_note: 创建operator
+      // note(strint): 创建operator
       op_(ConstructOp(op_conf, parallel_desc->device_type())),
-      // s_note: 记录该note的input blob names
+      // note(strint): 记录该note的input blob names
       ibns_(op_->input_bns().begin(), op_->input_bns().end()) {
-  // s_note: 填充operator的paralle_desc
+  // note(strint): 填充operator的paralle_desc
   op_->FillOpParallelDesc(parallel_desc);
 }
 
@@ -163,12 +163,15 @@ Maybe<OpGraph> OpGraph::New(const Job& job) {
 }
 
 Maybe<void> OpGraph::Init(const Job& job) {
+  // note(strint): 创建node
   InitNodes(job);
   op_name2op_node_.reserve(job.net().op_size());
   ForEachNode([&](OpNode* node) {
+    // note(strint): 记录node
     CHECK(op_name2op_node_.emplace(node->op().op_name(), node).second)
         << "op_name: " << node->op().op_name();
   });
+  // note(strint): 创建node之间的edge
   InitEdges();
   InitProducerOpName2CtrlConsumerOpNames(job);
   CheckIsDAG();
@@ -218,7 +221,7 @@ void OpGraph::InitNodes(const Job& job) {
   auto ParallelDesc4OpName = MakeGetterParallelDesc4OpName(job);
   for (const auto& op_conf : job.net().op()) {
     op_names_.push_back(op_conf.name());
-    // s_note: 创建并记录op_node到graph中
+    // note(strint): 创建并记录op_node到graph中
     OpNode* node = new OpNode(ParallelDesc4OpName(op_conf.name()), op_conf);
     AddAllocatedNode(node);
   }
@@ -231,12 +234,12 @@ void OpGraph::InitEdges() {
   ForEachNode([&](OpNode* op_node) {
     for (const auto& obn : op_node->op().output_bns()) {
       const auto& lbi = op_node->op().BnInOp2Lbi(obn);
-      // s_note: 构建 output的lbi2producer_op
+      // note(strint): 构建 output的lbi2producer_op
       CHECK(lbi2producer.emplace(lbi, op_node).second);
-      // s_note: 构建 output的producer_op_name2lbi2obn
+      // note(strint): 构建 output的producer_op_name2lbi2obn
       auto& lbi2obn = producer_op_name2lbi2obn[op_node->op().op_name()];
       if (!lbi2obn) { lbi2obn.reset(new HashMap<LogicalBlobId, std::string>()); }
-      // s_note: 构建 output的lbi2obn
+      // note(strint): 构建 output的lbi2obn
       CHECK(lbi2obn->emplace(lbi, obn).second);
     }
   });
@@ -247,28 +250,28 @@ void OpGraph::InitEdges() {
     op_node->input_index2producer_and_output_index_.reserve(op_node->op().input_bns().size());
     for (const auto& ibn : op_node->op().input_bns()) {
       const LogicalBlobId& lbi = op_node->op().BnInOp2Lbi(ibn);
-      // s_note: 创建生产者op_name 2 input_lbi
+      // note(strint): 创建生产者op_name 2 input_lbi
       producer_op_name2lbis[lbi.op_name()].insert(lbi);
-      // s_note: 创建input_lbi 2 ibn
+      // note(strint): 创建input_lbi 2 ibn
       (*consumer_lbi2ibns)[lbi].push_back(ibn);
       auto producer_it = lbi2producer.find(lbi);
       CHECK(producer_it != lbi2producer.end()) << "producer not found: " << GenLogicalBlobName(lbi);
-      // s_note: input_lbi在其生产者中的输出的index
+      // note(strint): input_lbi在其生产者中的输出的index
       const int32_t output_index = CHECK_JUST(producer_it->second->op().GetOutputIndex(lbi));
-      // s_note: 记录该input对应的生产者OpNode及其在OpNode中的输入index
+      // note(strint): 记录该input对应的生产者OpNode及其在OpNode中的输入index
       op_node->input_index2producer_and_output_index_.emplace_back(producer_it->second,
                                                                    output_index);
     }
-    // s_note: 对于该node的每个输入的生产者OpNode
+    // note(strint): 对于该node的每个输入的生产者OpNode
     for (const auto& pair : producer_op_name2lbis) {
-      // s_note: 对于其所有本node要用的输出libs
+      // note(strint): 对于其所有本node要用的输出libs
       std::shared_ptr<std::vector<LogicalBlobId>> lbis(
           new std::vector<LogicalBlobId>({pair.second.begin(), pair.second.end()}));
-      // s_note: 获得生产者op的输出的lbi2obn
+      // note(strint): 获得生产者op的输出的lbi2obn
       const auto it = producer_op_name2lbi2obn.find(pair.first);
       CHECK(it != producer_op_name2lbi2obn.end()) << "producer_op_name: " << pair.first;
       const auto& lbi2obn = it->second;
-      // s_note: 找个该输入lbi对应的生产者OpNode
+      // note(strint): 找个该输入lbi对应的生产者OpNode
       auto producer_it = lbi2producer.find(lbis->front());
       CHECK(producer_it != lbi2producer.end())
           << "producer not found: " << GenLogicalBlobName(lbis->front());

@@ -270,6 +270,17 @@ inline bool MaybeIsOk(Maybe<void>&& maybe) {
     }                                                                          \
     maybe;                                                                     \
   }).Data_YouAreNotAllowedToCallThisFuncOutsideThisFile()
+
+// note(strint):
+//   无return的函数中，使用CHECK_JUST
+//   另外xinqi建议：
+//   如果返回值不是Maybe，而且也没法改成Maybe返回值，就只能用CHECK_JUST
+//   但是构造函数不要抛异常，这几乎是大型c++项目的惯例和很多编程风格的明确要求。
+//   如果构造函数里涉及到Maybe，禁止public构造，使用New进行构造，然后在其中使用Maybe：
+//     static Maybe<T> New(Args... arg);
+//     Maybe<void> Init();
+//     在T::New里把构造函数的逻辑移动到Init函数里。
+//     同时禁止public的构造函数。
 #define CHECK_JUST(...)                                                        \
   ({                                                                           \
     MAYBE_CONST_AUTO_REF maybe = __MaybeErrorStackCheckWrapper__(__VA_ARGS__); \

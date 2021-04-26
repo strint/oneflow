@@ -135,14 +135,14 @@ class JobBuildAndInferCtx {
   void InferBlobBackwardSignature(const Operator& op,
                                   std::function<bool(const LogicalBlobId&)>* IsLbiBackwardUsed);
 
-  // s_note: 一个Job
+  // note(strint): 一个Job
   Job* job_;
   int64_t job_id_;
   HashMap<LogicalBlobId, std::unique_ptr<BlobDesc>> lbi2logical_blob_desc_;
   HashMap<LogicalBlobId, ParallelDistribution> lbi2parallel_distribution_from_producer_view_;
   HashMap<LogicalBlobId, ParallelDesc> lbi2parallel_desc_from_producer_view_;
   HashMap<LogicalBlobId, bool> lbi2disable_boxing_;
-  // s_note: Job中的Operator
+  // note(strint): Job中的Operator
   HashMap<std::string, std::shared_ptr<Operator>> op_name2op_;
   HashMap<ParallelDesc, PlacementGroup*> parallel_desc2placement_group_;
   HashMap<ParallelDesc, BlobPlacementGroup*> parallel_desc2blob_placement_group_;
