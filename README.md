@@ -1,7 +1,7 @@
 # Comments on OneFlow
 Comment format 
 ```
-// note(author_id): comments
+// note(github_id): comments
 ```
 
 **OneFlow is a performance-centered and open-source deep learning framework.**
