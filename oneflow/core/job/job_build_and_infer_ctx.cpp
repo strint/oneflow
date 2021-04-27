@@ -968,6 +968,7 @@ Maybe<void> LazyJobBuildAndInferCtx::Complete() {
   // note(strint): 确定是用户定义的job function
   if (GlobalJobDesc().Bool("__is_user_function__")) {
     // s_note：这查找注册的pass并执行
+    //         没有pass内部都会创建OpGraph和JobBuilder，使用其进行Job的改写
     JUST(DoPass("ModelUpdateConfCompatiblePass"));
     JUST(DoPass("SetDefaultVariableConf"));
     JUST(DoPass("AddInputOutputOpsPass"));

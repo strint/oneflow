@@ -399,6 +399,7 @@ Maybe<void> Operator::FillInputBlobTimeShape(
     std::shared_ptr<const Shape> time_shape = JUST(GetTimeShape4InputIndex(i));
     if ((!input_blob_fastest_time_shape_)
         || input_blob_fastest_time_shape_->elem_cnt() < time_shape->elem_cnt()) {
+      // ques(strint): 为什么TimeShape的各维度乘起来作为标准，而且越大表示越快
       input_blob_fastest_time_shape_ = time_shape;
     }
     input_index2time_shape_->emplace_back(time_shape);
