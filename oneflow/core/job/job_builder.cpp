@@ -292,6 +292,7 @@ Maybe<void> JobBuilder::MutOpOnlyOnce(const OperatorConf& op_conf) {
   return Maybe<void>::Ok();
 }
 
+// note(strint): 改写一个op
 void JobBuilder::MutOpsOnlyOnce(const std::vector<OperatorConf>& op_confs) {
   for (const auto& op_conf : op_confs) {
     CHECK(modified_op_conf_op_names_.emplace(op_conf.name()).second);
