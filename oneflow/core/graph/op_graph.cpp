@@ -469,6 +469,7 @@ LogicalBlobId OpGraph::GetLogicalBlobIdKey(const std::string& op_name,
   }
 }
 
+// note(strint): 对于该node所以输入的数据 or 输出ctrl关联的OpNode调用Handler
 void OpGraph::ForEachDataAndCtrlInNode(OpNode* node,
                                        const std::function<void(OpNode*)>& Handler) const {
   node->ForEachNodeOnInEdge(Handler);
@@ -477,6 +478,7 @@ void OpGraph::ForEachDataAndCtrlInNode(OpNode* node,
   }
 }
 
+// note(strint): 对于该node所以输出的数据 or 输出ctrl关联的OpNode调用Handler
 void OpGraph::ForEachDataAndCtrlOutNode(OpNode* node,
                                         const std::function<void(OpNode*)>& Handler) const {
   node->ForEachNodeOnOutEdge(Handler);
@@ -495,6 +497,9 @@ OpGraph::MakePredicatorIsOpNameDataOrCtrlReachable() const {
     if (src_node_it == op_name2op_node_.end()) { return false; }
     const auto& dst_node_it = op_name2op_node_.find(rhs);
     if (dst_node_it == op_name2op_node_.end()) { return false; }
+    // note(strint): 判断拉个op是否连通
+    //   lhs和rhs是相同的OpNode
+    //   或者src node是dst node的祖先  
     return (src_node_it->second == dst_node_it->second)
            || IsDataOrCtrlReachable(src_node_it->second, dst_node_it->second);
   };
@@ -502,13 +507,15 @@ OpGraph::MakePredicatorIsOpNameDataOrCtrlReachable() const {
 
 std::function<bool(const OpNode*, const OpNode*)> OpGraph::MakePredicatorIsDataOrCtrlReachable()
     const {
-  auto _1 = std::placeholders::_1;
-  auto _2 = std::placeholders::_2;
+  // note(strint): 这里bind了类的this指针， 使得成员函数可以像普通lambda一样传递
+  auto _1 = std::placeholders::_1;  // note(strint): OpNode
+  auto _2 = std::placeholders::_2;  // note(strint): Handle
   return MakePredicatorIsReachable(DataOrCtrlSourceNodes(),
                                    std::bind(&OpGraph::ForEachDataAndCtrlInNode, this, _1, _2),
                                    std::bind(&OpGraph::ForEachDataAndCtrlOutNode, this, _1, _2));
 }
 
+// note(strint): 返回所有的source node，即没有输入数据、没有输入ctrl的OpNode
 std::list<OpNode*> OpGraph::DataOrCtrlSourceNodes() const {
   std::list<OpNode*> ret;
   ForEachNode([&](OpNode* op_node) {

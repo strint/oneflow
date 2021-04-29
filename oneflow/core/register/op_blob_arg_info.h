@@ -21,8 +21,11 @@ limitations under the License.
 namespace oneflow {
 
 struct InplaceObasInfo {
+  // note(strint): mutable input args
   OpBlobArgList mut_in_obas;
+  // note(strint): mutable inplace arg pair list
   OpBlobArgPairs mut_inplace_oba_pairs;
+  // note(strint): const inplace arg pair list
   OpBlobArgPairs con_inplace_oba_pairs;
 };
 

@@ -48,6 +48,13 @@ message ConfigProto {
   required int64 session_id = 5;
 }
 
+// note(strint): 从jobset到kernel的数据结构
+// JobSet包含多个Job；
+// 一个Job对应一个OpGraph；
+// 一个OpGraph会被转换成一个Plan；
+// 一个Plan中包含多个Task；
+// 一个Task包含多个ExecNode；
+// 一个ExecNode对应一个Kernel；
 message JobSet {
   repeated Job job = 1;
   optional InterJobReuseMemStrategy inter_job_reuse_mem_strategy = 5;

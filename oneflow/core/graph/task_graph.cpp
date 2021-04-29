@@ -137,6 +137,7 @@ void TraverseConnectedSubGraphMergeInThisChain(TaskNode* this_node, const int64_
   }
 }
 
+// note(strint): 创建一个根据op_name查找对应TaskNode的map
 std::function<TaskNode*(const std::string&)> MakeGetterTaskNode4SoleOpName(
     const HashSet<TaskNode*>& task_nodes) {
   auto op_name2task_nodes = std::make_shared<HashMap<std::string, HashSet<TaskNode*>>>();
@@ -195,17 +196,22 @@ MakePredicatorIsLbiAllConsumersReachable(
   };
 }
 
+// note(strint): 判断一个blob或者多个bolb之间是否可以inplace修改
+//  blob的设备和他对应的task node在相同的设备
+//  blob的大小和数据类型相同
 bool IsInplaceAllowed(
     TaskNode* task_node, const std::vector<std::string>& bns,
     const std::function<const TaskNode*(const std::string&)>& TaskNode4SoleOpName) {
   if (task_node->exec_gph().node_num() != 1) { return false; }
   const auto& exec_node = *task_node->exec_gph().SoleNode();
   for (const auto& bn : bns) {
+    // note(strint): bn is same device with task node
     // TaskNode for bn is not nullptr if it's on the same device with `task_node`
     if (TaskNode4SoleOpName(exec_node.op()->BnInOp2Lbi(bn).op_name()) == nullptr) { return false; }
     const RegstDesc& regst_desc = *exec_node.RegstDesc4BnInOp(bn);
     if (regst_desc.NumOfLbi() != 1) { return false; }
   }
+  // note(strint): 多个blob的size和data_type要完全相同
   const BlobDesc* first_blob = nullptr;
   for (const auto& bn : bns) {
     const BlobDesc* blob_desc = exec_node.RegstDesc4BnInOp(bn)->SoleBlobDesc();
@@ -578,6 +584,7 @@ void TaskGraph::BuildCtrlRegstDescInSameChain() {
   }
 }
 
+// note(strint): obas_info返回该device node中所有可以inplace修改的op blob arguments
 void TaskGraph::GetInplaceOpBlobArgList(
     InplaceObasInfo* obas_info, const HashSet<TaskNode*>& dev_nodes,
     const std::function<const TaskNode*(const std::string&)>& TaskNode4OpName) const {
@@ -601,15 +608,21 @@ void TaskGraph::GetInplaceOpBlobArgList(
   for (TaskNode* task_node : dev_nodes) {
     if (task_node->exec_gph().node_num() != 1) { continue; }
     const auto& op = *task_node->exec_gph().SoleNode()->op();
+    // note(strint): 该task对应的op的输入需要被修改且可以被inplace修改的blob列表
+    //   大部分都是这种类型，都是直接修改输入且不再创建新的输出
     for (const std::string& ibn : op.input_bns()) {
+      // note(strint): input是可以被当前op修改的，那么就是inplace的
       if (op.InputBlobModifier4Ibn(ibn).is_mutable()) {
+        // note(strint): task_node和blob的设备是否匹配
         CHECK(IsInplaceAllowed(task_node, {ibn}, TaskNode4OpName));
         *obas_info->mut_in_obas.mutable_oba()->Add() = GenOpBlobArg(op.op_name(), ibn);
       }
     }
+    // note(strint): 可以inplace + 修改的blob pair 列表 
     for (const auto& pair : task_node->exec_gph().SoleNode()->mut_inplace_obn2ibn()) {
       AddMutableInplaceArgPair(task_node, pair.second, pair.first, op.op_name());
     }
+    // note(strint): 可以inplace + 不修改的blob pair 列表
     for (const auto& pair : task_node->exec_gph().SoleNode()->con_inplace_obn2ibn()) {
       AddConstInplaceArgPair(task_node, pair.second, pair.first, op.op_name());
     }
@@ -620,6 +633,7 @@ void TaskGraph::GetSafeInplaceOpBlobArgList(
     InplaceObasInfo* safe_obas_info, const HashSet<TaskNode*>& dev_nodes,
     const std::function<bool(const std::string&, const std::string&)>& IsOpNameDataOrCtrlReachable)
     const {
+  // note(strint): op_name to task node
   auto TaskNode4SoleOpName = MakeGetterTaskNode4SoleOpName(dev_nodes);
   InplaceObasInfo obas_info;
   GetInplaceOpBlobArgList(&obas_info, dev_nodes, TaskNode4SoleOpName);
@@ -669,10 +683,13 @@ void TaskGraph::ForEachGpuDeviceNodes(
   for (const auto& pair : global_dev_phy_id2nodes) { Handler(pair.second); }
 }
 
+// note(strint): inplace的操作，共享register
 void TaskGraph::EnableInplaceMemSharing(
     const std::function<bool(const std::string&, const std::string&)>&
         IsOpNameDataOrCtrlReachable) {
+  // note(strint): 对于每个设备上的task node
   ForEachGpuDeviceNodes([&](const HashSet<TaskNode*>& dev_nodes) {
+    // note(strint): 计算可以安全的做inplace的OpBlob参数列表
     InplaceObasInfo safe_inplace_obas_info;
     GetSafeInplaceOpBlobArgList(&safe_inplace_obas_info, dev_nodes, IsOpNameDataOrCtrlReachable);
     SetTaskRegstInplaceInfo(safe_inplace_obas_info, dev_nodes);

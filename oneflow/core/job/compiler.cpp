@@ -73,6 +73,7 @@ void Compiler::Compile(Job* job, Plan* plan, bool need_job_complete) const {
     Global<OpGraph>::Get()->ToDotWithFilePath("optimized_dlnet_" + std::to_string(job_desc.job_id())
                                               + "_op_graph.dot");
   }
+  // note(strint): 创建TaskGraph
   auto task_gph = std::make_unique<TaskGraph>();
   using std::placeholders::_1;
   task_gph->ForEachNode(std::bind(&TaskNode::ProduceAllRegstsAndBindEdges, _1));
@@ -89,10 +90,12 @@ void Compiler::Compile(Job* job, Plan* plan, bool need_job_complete) const {
 
   task_gph->ForEachEdge([&](TaskEdge* task_edge) { task_edge->CheckRegstLbiValid(); });
 
+  // note(strint): 把task的task node加入plan中
   task_gph->ForEachNode([&](TaskNode* task_node) {
     if (task_node->IsMeaningLess()) { return; }
     task_node->ToProto(plan->mutable_task()->Add());
   });
+  // note(strint): 把job_conf加入plan中
   {
     auto* job_id2job_conf = plan->mutable_job_confs()->mutable_job_id2job_conf();
     (*job_id2job_conf)[GlobalJobDesc().job_id()] = GlobalJobDesc().job_conf();

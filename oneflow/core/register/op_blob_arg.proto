@@ -1,21 +1,25 @@
 syntax = "proto2";
 package oneflow;
 
+// note(strit): Arg = op_name&blob_name
 message OpBlobArg {
   required string op_name = 1;
   // blob name in op
   required string bn_in_op = 2;
 }
 
+// note(strint): pair of Arg
 message OpBlobArgPair {
   required OpBlobArg first = 1;
   required OpBlobArg second = 2;
 }
 
+// note(strint): list of ArgPair
 message OpBlobArgPairs {
   repeated OpBlobArgPair pair = 1;
 }
 
+// note(strint): list of Arg
 message OpBlobArgList {
   repeated OpBlobArg oba = 1;
 }

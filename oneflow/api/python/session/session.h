@@ -64,17 +64,21 @@ inline Maybe<void> DestroyLazyGlobalSession() {
   return Maybe<void>::Ok();
 }
 
+// note(strint): 发布job_set并启动oneflow runtime
 inline Maybe<void> StartLazyGlobalSession() {
   CHECK_NOTNULL_OR_RETURN(Global<SessionGlobalObjectsScope>::Get()) << "session not found";
   CHECK_OR_RETURN(GlobalProcessCtx::IsThisProcessMaster());
+  // note(strint): 从LazyJobBuildAndInferCtxMgr中获取创建的job_set
   const JobSet& job_set = Global<LazyJobBuildAndInferCtxMgr>::Get()->job_set();
   if (Global<ResourceDesc, ForSession>::Get()->enable_debug_mode()) {
     TeePersistentLogStream::Create("job_set.prototxt")->Write(job_set);
   }
   if (job_set.job().empty()) { return Error::JobSetEmptyError() << "no function defined"; }
   CHECK_ISNULL_OR_RETURN(Global<Oneflow>::Get());
+  // note(strint): 把job_set proto发布到控制网络上
   Global<CtrlClient>::Get()->PushKV("session_job_set", job_set);
   Global<const InterJobReuseMemStrategy>::New(job_set.inter_job_reuse_mem_strategy());
+  // note(strint): 根据job_set编译执行计划 + 初始化runtime实例
   Global<Oneflow>::New();
   JUST(Global<Oneflow>::Get()->Init(job_set));
   return Maybe<void>::Ok();

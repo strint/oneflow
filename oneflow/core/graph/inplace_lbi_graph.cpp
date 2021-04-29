@@ -20,6 +20,7 @@ namespace oneflow {
 
 namespace {
 
+// note(strint): source op判断逻辑
 bool IsSourceNode(const Operator& op) {
   const auto& op_conf = op.op_conf();
   if (op_conf.has_user_conf() && op_conf.user_conf().input().size() == 0
@@ -46,6 +47,7 @@ void CheckSubGraph(const HashSet<const InplaceLbiNode*>& nodes) {
       CHECK_EQ(++source_op_node_cnt, 1);
       CHECK(node->in_edges().empty());
     }
+    // note(strint): 如果本node是ModelUpdateOp的inplace lbi node，则该lbi node(参数)生产者node必须是source op
     if (dynamic_cast<const UpdateInplaceLbiNode*>(node) != nullptr) {
       CHECK_EQ(++updt_node_cnt, 1);
       CHECK(dynamic_cast<const SourceOpInplaceLbiNode*>(node->SoleInEdge()->src_node()) != nullptr)
