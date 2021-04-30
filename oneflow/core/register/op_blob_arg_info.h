@@ -24,6 +24,7 @@ struct InplaceObasInfo {
   // note(strint): mutable input args
   OpBlobArgList mut_in_obas;
   // note(strint): mutable inplace arg pair list
+  //   pair 代表inplace的两个op blob之间的关系
   OpBlobArgPairs mut_inplace_oba_pairs;
   // note(strint): const inplace arg pair list
   OpBlobArgPairs con_inplace_oba_pairs;

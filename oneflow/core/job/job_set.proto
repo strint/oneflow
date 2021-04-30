@@ -51,7 +51,8 @@ message ConfigProto {
 // note(strint): 从jobset到kernel的数据结构
 // JobSet包含多个Job；
 // 一个Job对应一个OpGraph；
-// 一个OpGraph会被转换成一个Plan；
+// 一个OpGraph会被转换成一个SubPlan；
+// SubPlan会被合并成一个完整的Plan
 // 一个Plan中包含多个Task；
 // 一个Task包含多个ExecNode；
 // 一个ExecNode对应一个Kernel；

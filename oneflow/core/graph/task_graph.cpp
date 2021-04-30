@@ -635,6 +635,7 @@ void TaskGraph::GetSafeInplaceOpBlobArgList(
     const {
   // note(strint): op_name to task node
   auto TaskNode4SoleOpName = MakeGetterTaskNode4SoleOpName(dev_nodes);
+  // note(strint): 获取可以inplace的arg列表
   InplaceObasInfo obas_info;
   GetInplaceOpBlobArgList(&obas_info, dev_nodes, TaskNode4SoleOpName);
   auto Op4OpName = [&](const std::string& op_name) -> const Operator* {

@@ -67,6 +67,7 @@ void Compiler::GenNetTopo(Plan* plan) const {
 void Compiler::Compile(Job* job, Plan* plan, bool need_job_complete) const {
   const JobDesc& job_desc = GlobalJobDesc();
   if (need_job_complete) { JobCompleter().Complete(job); }
+  // note(strint): 注册了一个Global的OpGraph
   Global<OpGraph>::New(*job);
   if (Global<ResourceDesc, ForSession>::Get()->enable_debug_mode()) {
     TeePersistentLogStream::Create(StrCat("optimized_job", job_desc.job_id()))->Write(*job);
@@ -84,6 +85,7 @@ void Compiler::Compile(Job* job, Plan* plan, bool need_job_complete) const {
   task_gph->MergeChainAndAddOrderingCtrlEdgeInSameChain();
   if (job_desc.enable_inplace()) {
     auto IsReachable = Global<OpGraph>::Get()->MakePredicatorIsOpNameDataOrCtrlReachable();
+    // note(strint): 传入了op是否可达的判断函数
     task_gph->EnableInplaceMemSharing(IsReachable);
   }
   task_gph->TopoForEachNode(&TaskNode::InferTimeShapeIfMeaningful);

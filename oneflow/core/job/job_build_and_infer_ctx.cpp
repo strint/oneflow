@@ -962,12 +962,12 @@ Maybe<void> LazyJobBuildAndInferCtx::Complete() {
   JobPassCtx job_pass_ctx(GlobalJobDesc());
   // note(strint): DoPass是一个lambda，根据pass名字调用对应的pass
   auto DoPass = [&](const std::string& pass_name) -> Maybe<void> {
-    // 传入了mutable的job和job_pass_ctx的引用
+    // note(strint): 传入了mutable的job和job_pass_ctx的引用
     return JobPass4Name(pass_name)(mut_job(), &job_pass_ctx);
   };
   // note(strint): 确定是用户定义的job function
   if (GlobalJobDesc().Bool("__is_user_function__")) {
-    // s_note：这查找注册的pass并执行
+    // note(strint)：这查找注册的pass并执行
     //         没有pass内部都会创建OpGraph和JobBuilder，使用其进行Job的改写
     JUST(DoPass("ModelUpdateConfCompatiblePass"));
     JUST(DoPass("SetDefaultVariableConf"));
@@ -980,8 +980,11 @@ Maybe<void> LazyJobBuildAndInferCtx::Complete() {
     JUST(DoPass("AutoTrainStep"));
     JUST(DoPass("AutoLearningRate"));
     JUST(DoPass("QuantAwareTraining"));
+
+    // note(strint): 之上的优化都希望在后向展开之前做，这样前向插入的op可以使用这里的autograd自动生成后向
     // note(strint): 后向和model update生成的pass
     JUST(DoPass("GenerateBackwardAndOptimizerOpConfs"));
+
     JUST(DoPass("AddSspVariableProxy"));
     JUST(DoPass("CheckpointingPass"));
     JUST(DoPass("CudnnFusedNormalizationAddReluPass"));

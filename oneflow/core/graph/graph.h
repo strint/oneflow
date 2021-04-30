@@ -248,6 +248,7 @@ void Graph<NodeType, EdgeType>::ForEachEdge(std::function<void(EdgeType*)> EdgeH
   }
 }
 
+// note(strint): 单独一个node的graph
 template<typename NodeType, typename EdgeType>
 NodeType* Graph<NodeType, EdgeType>::SoleNode() const {
   CHECK_EQ(nodes_.size(), 1);

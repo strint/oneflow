@@ -259,6 +259,8 @@ inline bool MaybeIsOk(Maybe<void>&& maybe) {
 #endif  // defined(__CUDACC__)
 
 #define TRY(...) __MaybeErrorStackCheckWrapper__(__VA_ARGS__)
+// note(strint): 正常时返回数据, 异常时返回Maybe with stackframe
+//   注意有些类型返回的是数据的shared_ptr<T>
 #define JUST(...)                                                              \
   ({                                                                           \
     MAYBE_CONST_AUTO_REF maybe = __MaybeErrorStackCheckWrapper__(__VA_ARGS__); \
@@ -271,6 +273,7 @@ inline bool MaybeIsOk(Maybe<void>&& maybe) {
     maybe;                                                                     \
   }).Data_YouAreNotAllowedToCallThisFuncOutsideThisFile()
 
+// note(strint): 正常时返回数据，异常时LOG(FATAL)
 // note(strint):
 //   无return的函数中，使用CHECK_JUST
 //   另外xinqi建议：
