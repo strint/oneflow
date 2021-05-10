@@ -25,6 +25,16 @@ limitations under the License.
 namespace oneflow {
 
 namespace {
+// activation checkpointing，亚线性内存优化/后向重计算的oneflow实现
+// https://github.com/Oneflow-Inc/oneflow/pull/3976
+// 主要原理
+// • 1.收集所有checkpointing作用域下的所有前向pass下的ops
+// • 2.收集ops下所有的子图subgraphs
+// • 3.遍历子图subgraphs，并对所有需要做后向的子图做如下操作：
+//   • 生成fake子图，并将其作为后向消费者的输入（而不是真实子图）
+//   • 在fake子图中为所有source节点—end op添加控制边
+//   • 将fake子图添加至job build（被其管理）
+// • 4.更新所有后向消费者
 
 // Do CheckpointingPass will use backward recomputation for sublinear memory cost.
 class CheckpointingPass final : public JobPass {
