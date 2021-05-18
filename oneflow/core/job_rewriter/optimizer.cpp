@@ -28,6 +28,7 @@ void GenerateOptimizerOpConfWrapperStruct::Call(JobPassCtx* ctx, const OpNode& v
 
 void AddOptimizerOp(JobPassCtx* ctx, const OpNode& var_op_node, const std::string& model_diff_lbn,
                     const OptimizerConf& optimizer_conf, JobBuilder* job_builder) {
+  // note(strint): optmizer 类型
   const auto optimizer_case = optimizer_conf.normal_mdupdt_case();
   auto* obj = NewObj<int32_t, GenerateOptimizerOpConfWrapperStruct>(optimizer_case);
   obj->Call(ctx, var_op_node, model_diff_lbn, optimizer_conf, job_builder);

@@ -25,15 +25,17 @@ void GenerateOptimizerOpConf(JobPassCtx* ctx, const OpNode& var_op_node,
                              JobBuilder* job_builder) {
   const VariableOp* var_op = dynamic_cast<const VariableOp*>(&var_op_node.op());
   CHECK_NOTNULL(var_op);
+  // note(strint): 创建optimizer op
   user_op::UserOpConfWrapperBuilder sgd_update_op_builder(var_op->op_name() + "_optimizer");
   sgd_update_op_builder.OpTypeName("sgd_update")
-      .Input("model", GenLogicalBlobName(var_op->BnInOp2Lbi("out")))
+      .Input("model", GenLogicalBlobName(var_op->BnInOp2Lbi("out")))  // note(strint): model更名为parameter更合适，代表一个参数
       .Input("model_diff", model_diff_lbn)
       .Input("learning_rate", optimizer_conf.learning_rate_lbn())
       .Attr<float>("weight_decay", GetOptimizerWeightDecayRate(optimizer_conf, *var_op))
       .ScopeSymbolId(var_op->op_conf().scope_symbol_id());
   SetDynamicLossScaleSkipIf(ctx, &sgd_update_op_builder);
   user_op::UserOpConfWrapper sgd_update_op = sgd_update_op_builder.Build();
+  // note(strint): 把optimizer op加入job
   job_builder->AddOps(var_op_node.parallel_desc().parallel_conf(), {sgd_update_op.op_conf()});
 }
 

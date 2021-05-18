@@ -29,14 +29,17 @@ class SetDefaultVariableConf final : public JobPass {
     return Apply(op_graph, &job_builder);
   }
 
+  // note(strint): train & predict时都执行，根据job_conf中配置补全variable_conf中的配置
   Maybe<void> Apply(const OpGraph& op_graph, JobBuilder* job_builder) const {
     op_graph.ForEachNode([&](OpNode* op_node) {
       if (op_node->op().op_conf().has_variable_conf()) {
         OperatorConf variable_op_conf(op_node->op().op_conf());
         VariableOpConf* variable_conf = variable_op_conf.mutable_variable_conf();
+        // note(strint): 配置data_type
         if (!variable_conf->has_data_type()) {
           variable_conf->set_data_type(job_builder->job().job_conf().default_data_type());
         }
+        // note(strint):  配置initlializer
         if (!variable_conf->has_initializer() && !variable_conf->has_initialize_with_snapshot()) {
           if (job_builder->job().job_conf().has_default_initializer_conf()) {
             *variable_conf->mutable_initializer() =
@@ -50,6 +53,7 @@ class SetDefaultVariableConf final : public JobPass {
             UNIMPLEMENTED();
           }
         }
+        // note(strint): 处理variable的随机数种子
         int64_t random_seed;
         auto* var_op_name2random = Global<JobSetCompileCtx>::Get()->GetVarOpName2randomSeed();
         const std::string& var_op_name = variable_op_conf.name();

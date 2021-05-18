@@ -196,7 +196,7 @@ MakePredicatorIsLbiAllConsumersReachable(
   };
 }
 
-// note(strint): 判断一个blob或者多个bolb之间是否可以inplace修改
+// note(strint): 判断一个blob或者多个blob之间是否可以inplace修改
 //  blob的设备和他对应的task node在相同的设备
 //  blob的大小和数据类型相同
 bool IsInplaceAllowed(

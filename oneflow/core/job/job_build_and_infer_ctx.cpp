@@ -969,16 +969,28 @@ Maybe<void> LazyJobBuildAndInferCtx::Complete() {
   if (GlobalJobDesc().Bool("__is_user_function__")) {
     // note(strint)：这查找注册的pass并执行
     //         没有pass内部都会创建OpGraph和JobBuilder，使用其进行Job的改写
+
+    // note(strint): train & predict 执行
+
+    // note(strint): train执行, 把jof_conf.train_conf.model_update_conf中的数据填充到optimizer_conf中
     JUST(DoPass("ModelUpdateConfCompatiblePass"));
+    // note(strint): train & predict 执行，配置下variable conf
     JUST(DoPass("SetDefaultVariableConf"));
+    // note(strint): train & predict 执行, 创建job输入/输入关联的op
     JUST(DoPass("AddInputOutputOpsPass"));
 #ifdef WITH_CUDA
+    // note(strint): train or predict 且打开开关执行，自动混合精度训练需要的op调整和cast op插入
     JUST(DoPass("AutoMixedPrecision"));
 #endif
+    // note(strint): train且需要打开开关执行，支持optimizer state切分执行的，对应ZeRO stage 1
     JUST(DoPass("OptimizerPlacementOptimizationPass"));
+    // note(strint): train且需要打开开关执行，支持loss scale通常也会配合混合精度使用
     JUST(DoPass("DynamicLossScaleSchedulePass"));
+    // note(strint): train执行，添加更新step index的op
     JUST(DoPass("AutoTrainStep"));
+    // note(strint): train执行，添加更新learning rate的op
     JUST(DoPass("AutoLearningRate"));
+    // note(strint): 开关控制，支持量化训练
     JUST(DoPass("QuantAwareTraining"));
 
     // note(strint): 之上的优化都希望在后向展开之前做，这样前向插入的op可以使用这里的autograd自动生成后向

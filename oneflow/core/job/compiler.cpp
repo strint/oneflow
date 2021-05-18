@@ -66,6 +66,7 @@ void Compiler::GenNetTopo(Plan* plan) const {
 
 void Compiler::Compile(Job* job, Plan* plan, bool need_job_complete) const {
   const JobDesc& job_desc = GlobalJobDesc();
+  // note(strint): 生成plan的第一步，先做job补全
   if (need_job_complete) { JobCompleter().Complete(job); }
   // note(strint): 注册了一个Global的OpGraph
   Global<OpGraph>::New(*job);

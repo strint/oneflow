@@ -78,6 +78,7 @@ struct AutoRegistrationFactory {
 
 #define REGISTER_VAR_NAME OF_PP_CAT(g_registry_var, __COUNTER__)
 
+// note(strint): 注册一个key base_class的pair，表示类为Key的k对应的类为Base
 #define REGISTER_CLASS(Key, k, Base, Derived) \
   static AutoRegistrationFactory<Key, Base>::RawRegisterType<Derived> REGISTER_VAR_NAME(k)
 #define REGISTER_CLASS_WITH_ARGS(Key, k, Base, Derived, ...)                       \
@@ -87,11 +88,13 @@ struct AutoRegistrationFactory {
   static AutoRegistrationFactory<Key, Base, ##__VA_ARGS__>::CreatorRegisterType REGISTER_VAR_NAME( \
       k, f)
 
+// 根据k类型，创建一个Base*，传入参数为args
 template<typename Key, typename Base, typename... Args>
 inline Base* NewObj(Key k, Args&&... args) {
   return AutoRegistrationFactory<Key, Base, Args...>::Get().New(k, std::forward<Args>(args)...);
 }
 
+// note(strint): 判断key是否被注册过
 template<typename Key, typename Base, typename... Args>
 inline bool IsClassRegistered(Key k, Args&&... args) {
   return AutoRegistrationFactory<Key, Base, Args...>::Get().IsClassRegistered(
