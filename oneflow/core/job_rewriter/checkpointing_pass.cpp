@@ -32,9 +32,9 @@ namespace {
 // • 1.收集checkpointing作用域包裹下的所有前向pass下的ops
 // • 2.收集ops下所有的子图subgraphs
 // • 3.遍历子图subgraphs，并对所有需要做后向的subgraph做如下操作：
-//   • 生成fake子图，并将其作为后向消费者的输入（而不是真实子图）
+//   • 生成fake子图，并将其作为后向backward消费者的输入（而不是真实子图）
 //   • 在fake子图中增加由end op连向所有源节点source nodes的控制边
-//   • 将fake子图添加至job builder（被其管理）
+//   • 将fake子图的ops添加至job builder,被其管理(即改写了job逻辑图)
 // • 4.在job builder中更新所有后向消费者ops
 
 // Do CheckpointingPass will use backward recomputation for sublinear memory cost.
@@ -91,7 +91,7 @@ void CollectAllCheckpointingOpsInForwardPass(
         != ignore_op_type_names.end()) {
       return;
     }
-    // 对scope范围内开启了checkpointing且属于ForwardPass的op_node，则为目标node,将其插入HashMap中
+    // 对scope范围内开启了checkpointing且包含ForwardPass属性的op_node，则为目标node,将其插入HashMap中
     if (IsForwardPass7CheckpointingScope(Scope4OpNode(op_node))) {
       CHECK(checkpointing_op_name2op_node->emplace(op_conf.name(), op_node).second);
     }
@@ -139,13 +139,13 @@ void GenConnectedCheckpointingSubgraphs(
 }
 
 Maybe<void> CheckpointingPass::Apply(const OpGraph& op_graph, JobBuilder* job_builder) const {
-  // 收集所有在forwardpass下，符合条件的ops，放入HashMap中
+  // 收集所有在forward pass下，符合条件的ops，放入HashMap中
   // step 1. collect all checkpointing ops in forwardpass.
   HashMap<std::string, const OpNode*> checkpointing_op_name2op_node;
   CollectAllCheckpointingOpsInForwardPass(op_graph, &checkpointing_op_name2op_node);
   if (checkpointing_op_name2op_node.empty()) { return Maybe<void>::Ok(); }
 
-  // 根据ops生成所有subgraphs子图，并将其存放在vector中
+  // 根据ops生成所有subgraphs子图，并将其存放在subgraphs vector中
   // step 2. get all connected subgraphs in checkpointing ops.
   std::vector<HashSet<const OpNode*>> checkpointing_subgraphs;
   GenConnectedCheckpointingSubgraphs(checkpointing_op_name2op_node, &checkpointing_subgraphs);
@@ -166,7 +166,7 @@ Maybe<void> CheckpointingPass::Apply(const OpGraph& op_graph, JobBuilder* job_bu
   HashMap<std::string, OperatorConf> total_bw_consumers_op_name2conf;
 
   for (auto& subgraph : checkpointing_subgraphs) {
-    // 如果一个子图没有backward pass相关的op的消费者（没有控制边直接相连），则忽略该子图
+    // 如果一个子图没有backward pass相关的op的消费者（没有边直接相连），则忽略该子图
     // step 3.1 ignore this subgraph if there is no direct edge to backward pass op.
     HashSet<const OpNode*> bw_consumers;
     for (const OpNode* node : subgraph) {
@@ -187,7 +187,7 @@ Maybe<void> CheckpointingPass::Apply(const OpGraph& op_graph, JobBuilder* job_bu
       parallel_conf = node->parallel_desc().parallel_conf();
     }
 
-    // 生成由fake op构成的fake子图作为后向消费者的输入（重计算）
+    // 生成由fake op构成的fake子图作为后向消费者的输入（用于重计算）
     // step 3.2 generate fake subgraph for recomputation
     HashMap<std::string, OperatorConf> fake_op_name2conf;
     HashSet<std::string> source_node_in_fake_subgraph;
@@ -206,7 +206,7 @@ Maybe<void> CheckpointingPass::Apply(const OpGraph& op_graph, JobBuilder* job_bu
       fake_op_conf.set_scope_symbol_id(new_scope_symbol_id);
 
       auto* user_conf = fake_op_conf.mutable_user_conf();
-      // 修改输出blob的name
+      // 修改fake op 输出blob的name
       // change output lbns
       for (auto& pair : *(user_conf->mutable_output())) {
         auto& list_s = pair.second;
@@ -225,7 +225,7 @@ Maybe<void> CheckpointingPass::Apply(const OpGraph& op_graph, JobBuilder* job_bu
       }
 
       int32_t input_num = 0;
-      // 修改输入的blob name
+      // 修改fake op 输入blob的name
       // change input lbns if in subgraph
       for (auto& pair : *(user_conf->mutable_input())) {
         auto& list_s = pair.second;
@@ -249,7 +249,7 @@ Maybe<void> CheckpointingPass::Apply(const OpGraph& op_graph, JobBuilder* job_bu
 
     const OpNode* first_bw_consumer = nullptr;
     int32_t first_bw_order = std::numeric_limits<int32_t>::max();
-    // 将backward消费者的input更改为fake子图（而不是真实子图）
+    // 将backward op node 的input更改为fake子图（而不是真实子图）
     // step 3.3 change bw consumers input from subgraph to fake subgraph
     for (const OpNode* node : bw_consumers) {
       std::string bw_consumer_name = node->op().op_name();
@@ -265,6 +265,7 @@ Maybe<void> CheckpointingPass::Apply(const OpGraph& op_graph, JobBuilder* job_bu
       CHECK_EQ(bw_consumer_name, bw_consumer_op_conf.name());
 
       auto* user_conf = bw_consumer_op_conf.mutable_user_conf();
+      // 修改和subgragh相关的backward op输入的blob name
       // change input lbns if in subgraph
       for (auto& pair : *(user_conf->mutable_input())) {
         auto& list_s = pair.second;
@@ -291,7 +292,7 @@ Maybe<void> CheckpointingPass::Apply(const OpGraph& op_graph, JobBuilder* job_bu
       }
     }
 
-    // 为fake subgraph内部增加由end op连向所有源节点source nodes的控制边
+    // 为fake subgraph内部增加由end op连向所有源节点source nodes的控制边（控制fake子图的生命周期）
     // step 3.4 add control edge from End Op to all source node in fake subgraph
     CHECK(first_bw_consumer != nullptr);
     std::string end_op_name = kCheckpointingBadOpName;
@@ -311,14 +312,14 @@ Maybe<void> CheckpointingPass::Apply(const OpGraph& op_graph, JobBuilder* job_bu
       fake_op_name2conf.at(source_op_name).add_ctrl_in_op_name(end_op_name);
     }
 
-    // 将fake subgraph所包含的ops加入至job_builder管理
+    // 将fake subgraph所包含的ops加入至job_builder管理（图改写）
     // step 3.5 add fake subgraph ops to job builder
     std::vector<OperatorConf> fake_op_confs;
     for (auto& pair : fake_op_name2conf) { fake_op_confs.push_back(pair.second); }
     job_builder->AddOps(parallel_conf, fake_op_confs);
   }
 
-  // 在job builder中更新所有backward消费者
+  // 在job builder中更新所有backward ops
   // step 4. update bw consumers in job builder only once
   std::vector<OperatorConf> total_bw_consumer_op_confs;
   for (auto& pair : total_bw_consumers_op_name2conf) {
