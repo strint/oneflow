@@ -66,13 +66,16 @@ void Compiler::GenNetTopo(Plan* plan) const {
 
 void Compiler::Compile(Job* job, Plan* plan, bool need_job_complete) const {
   const JobDesc& job_desc = GlobalJobDesc();
+  // note(strint): 生成plan的第一步，先做job补全
   if (need_job_complete) { JobCompleter().Complete(job); }
+  // note(strint): 注册了一个Global的OpGraph
   Global<OpGraph>::New(*job);
   if (Global<ResourceDesc, ForSession>::Get()->enable_debug_mode()) {
     TeePersistentLogStream::Create(StrCat("optimized_job", job_desc.job_id()))->Write(*job);
     Global<OpGraph>::Get()->ToDotWithFilePath("optimized_dlnet_" + std::to_string(job_desc.job_id())
                                               + "_op_graph.dot");
   }
+  // note(strint): 创建TaskGraph
   auto task_gph = std::make_unique<TaskGraph>();
   using std::placeholders::_1;
   task_gph->ForEachNode(std::bind(&TaskNode::ProduceAllRegstsAndBindEdges, _1));
@@ -83,16 +86,19 @@ void Compiler::Compile(Job* job, Plan* plan, bool need_job_complete) const {
   task_gph->MergeChainAndAddOrderingCtrlEdgeInSameChain();
   if (job_desc.enable_inplace()) {
     auto IsReachable = Global<OpGraph>::Get()->MakePredicatorIsOpNameDataOrCtrlReachable();
+    // note(strint): 传入了op是否可达的判断函数
     task_gph->EnableInplaceMemSharing(IsReachable);
   }
   task_gph->TopoForEachNode(&TaskNode::InferTimeShapeIfMeaningful);
 
   task_gph->ForEachEdge([&](TaskEdge* task_edge) { task_edge->CheckRegstLbiValid(); });
 
+  // note(strint): 把task的task node加入plan中
   task_gph->ForEachNode([&](TaskNode* task_node) {
     if (task_node->IsMeaningLess()) { return; }
     task_node->ToProto(plan->mutable_task()->Add());
   });
+  // note(strint): 把job_conf加入plan中
   {
     auto* job_id2job_conf = plan->mutable_job_confs()->mutable_job_id2job_conf();
     (*job_id2job_conf)[GlobalJobDesc().job_id()] = GlobalJobDesc().job_conf();

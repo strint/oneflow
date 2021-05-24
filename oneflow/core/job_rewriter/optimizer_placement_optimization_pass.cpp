@@ -123,6 +123,7 @@ void SetBroadcastParallel4OpNodeIbn(JobBuilder* builder, const OpNode* node,
   op_blob_arg.set_bn_in_op(ibn);
   SbpParallel sbp_parallel;
   sbp_parallel.mutable_broadcast_parallel();
+  // note(strint): 利用JobBuilder修改op blob的sbp为B
   builder->SetSbpParallel4Oba(op_blob_arg, sbp_parallel);
 }
 
@@ -231,6 +232,7 @@ void ForEachModelSizeBalancedPartition(
 }
 
 Maybe<void> RewriteDistributedSplit(const OpGraph& op_graph, JobBuilder* builder) {
+  // note(strint): threshold表示每个设备最少的元素个数，切分后小于这个阈值的就不用切分了
   const int64_t threshold = builder->job().job_conf().optimizer_placement_optimization_threshold();
   const auto IsAllowed = [threshold](const OpNode* n) -> bool {
     if (n->op().op_conf().has_variable_conf()) {
@@ -254,6 +256,8 @@ Maybe<void> RewriteDistributedSplit(const OpGraph& op_graph, JobBuilder* builder
             sorted_sequences.at(i - 1)->GetVariableNode()->op().op_name();
         new_var_op_conf.add_ctrl_in_op_name(prev_op_name);
       }
+      // note(strint): 利用JobBuilder修改var op
+      //   把其parallel_distribution改为S(0)
       builder->MutOpsOnlyOnce({new_var_op_conf});
       SetBroadcastParallel4Consumers(builder, sorted_sequences.at(i));
     }
@@ -293,6 +297,7 @@ Maybe<void> RewriteNonDistributed(const OpGraph& op_graph, JobBuilder* builder) 
   ForEachParallelSortedNodeSequence(op_graph, IsAllowed, SequenceCompSortedByModelSizeDesc,
                                     RewriteSequences);
 
+  // note(strint): 增加var op之间的控制边，是的在网络中靠前的var先生成
   for (auto& parallel_desc7sequences : new_parallel_desc2sequences) {
     auto& sequences = parallel_desc7sequences.second;
     std::sort(sequences.begin(), sequences.end(), SequenceCompSortedByOrderAsc);
@@ -319,6 +324,7 @@ class OptimizerPlacementOptimizationPass final : public JobPass {
       return Maybe<void>::Ok();
     }
     const std::string& mode = ctx->job_desc().job_conf().optimizer_placement_optimization_mode();
+    // note(strint): 创建OpGraph和JobBuilder，基于此做job改写
     const OpGraph op_graph(*job);
     JobBuilder job_builder(job);
     if (mode == "non_distributed") {

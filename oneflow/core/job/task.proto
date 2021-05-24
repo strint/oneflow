@@ -7,7 +7,7 @@ import "oneflow/core/job/placement.proto";
 
 enum TaskType {
   kInvalid = 0;
-  kNormalForward = 1;
+  kNormalForward = 1;  // note(strint): 常规的计算task，这里应该也包含了后向算子，可能是历史遗留的不准确命名
   kCopyHd = 12;
   kCopyCommNet = 13;
   kDeviceTick = 27;
@@ -49,6 +49,7 @@ message TaskSetInfo {
   required int64 order_in_graph = 5;
 }
 
+// note(strint): 一个task
 message TaskProto {
   // common
   required TaskType task_type = 1;

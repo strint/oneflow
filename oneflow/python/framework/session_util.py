@@ -200,13 +200,13 @@ class Session(object):
             for job_name, func_desc in self.job_name2function_desc_.items():
                 # note(strint): lazy状态，编译每个job_fuc
                 #         注册并创建了job，维护在JobBuildAndInferCtx中
-                #         里面构建了逻辑图，并优化了逻辑图
+                #         里面构建了逻辑图，并执行了优化逻辑图的各个pass
                 compiler.Compile(self, func_desc, self.config_proto)
                 self.existed_module_names_ = set()
             self.job_name2var_name2var_blob_ = dict()
             assert len(self.job_name2function_desc_.items()) > 0
-            # note(strint): 启动lazy的后台GlobalSession
-            #         如果是master，发送所有job_set到控制网络；创建oneflow后台并初始化之；
+            # note(strint): 启动lazy的执行计划编译并启动oneflow runtime
+            #         如果是master，发送所有job_set到控制网络；创建oneflow rumtime并初始化之；
             #         Oneflow::Init(job_set)会在master编译和merge Plan，并根据plan创建runtime；
             oneflow_api.StartLazyGlobalSession()
             self.inter_user_job_info_ = c_api_util.GetInterUserJobInfo()
@@ -216,7 +216,7 @@ class Session(object):
                 check_point_v2.Init()
         else:
             # note(strint): eager下，没有编译
-            # s_quest: 看起来当前实现，一个session下，只能是eager和lazy二选一模式
+            # ques(strint): 看起来当前实现，默认只能是eager和lazy二选一模式
             self.eager_config_proto_ctx_ = oneflow_api.LogicalConfigProtoContext(
                 str(self.config_proto)
             )

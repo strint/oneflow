@@ -41,6 +41,7 @@ class ModelUpdateConfCompatiblePass final : public JobPass {
   }
 };
 
+// note(strint): 把jof_conf.train_conf.model_update_conf中的数据填充到optimier_conf中
 Maybe<void> ModelUpdateConfCompatiblePass::Apply(const OpGraph& op_graph, Job* job) const {
   const TrainConf& train_conf = job->job_conf().train_conf();
   const bool use_model_update_conf =

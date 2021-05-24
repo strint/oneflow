@@ -11,10 +11,11 @@ import "oneflow/core/operator/op_conf.proto";
 import "oneflow/core/job/sbp_parallel.proto";
 import "oneflow/core/job/lbi_diff_watcher_info.proto";
 
+// note(strint): job中op的sbp/是否mirror/ParallelDistributionSignature
 message JobParallelViewConf {
-  map<string, SbpSignature> op_name2sbp_signature_conf = 1;
+  map<string, SbpSignature> op_name2sbp_signature_conf = 1;  // op 2 bn 2 sbp
   map<string, bool> op_name2is_mirrored_parallel_view = 2;
-  map<string, ParallelDistributionSignature> op_name2parallel_distribution_signature_conf = 3;
+  map<string, ParallelDistributionSignature> op_name2parallel_distribution_signature_conf = 3;  // ques(strint): op 2 bn 2 多个sbp，多个sbp是什么意思
 }
 
 message JobHelperConf {

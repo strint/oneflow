@@ -27,7 +27,7 @@ message CtrlRegstDescInfo {
 }
 
 message Plan {
-  repeated TaskProto task = 1;
+  repeated TaskProto task = 1;  // note(strint): 包含很多task
   required MemBlockAndChunkList block_chunk_list = 2;
   required NetTopo net_topo = 3;
   required JobConfs job_confs = 4;

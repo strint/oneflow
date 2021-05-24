@@ -248,6 +248,7 @@ void Graph<NodeType, EdgeType>::ForEachEdge(std::function<void(EdgeType*)> EdgeH
   }
 }
 
+// note(strint): 单独一个node的graph
 template<typename NodeType, typename EdgeType>
 NodeType* Graph<NodeType, EdgeType>::SoleNode() const {
   CHECK_EQ(nodes_.size(), 1);
@@ -506,26 +507,35 @@ void Graph<NodeType, EdgeType>::TopoForEachNode(
       }));
 }
 
+// note(strint): 用层序遍历的方法实现拓扑遍历，遍历时调用handle处理该node
 template<typename NodeType, typename EdgeType>
 Maybe<void> Graph<NodeType, EdgeType>::TopoForEachNodeWithErrorCaptured(
     const std::list<NodeType*>& starts,
+    // note(strint): 可以选择改node要处理的输入node
     const std::function<void(NodeType*, const std::function<void(NodeType*)>&)>& ForEachInNode,
+    // note(strint): 可以选择改node要处理的输出node
     const std::function<void(NodeType*, const std::function<void(NodeType*)>&)>& ForEachOutNode,
+    // note(strint): 处理node的方法
     const std::function<Maybe<void>(NodeType*)>& Handler) const {
   HashMap<NodeType*, bool> has_queued;
   std::queue<NodeType*> queue;
+  // note(strint): 对于每个起点node
   for (NodeType* start : starts) {
+    // note(strint): 压入队列
     queue.push(start);
     has_queued[start] = true;
+    // note(strint): src node 如果有in node，报错
     ForEachInNode(start, [&](NodeType*) { LOG(FATAL) << "not a source"; });
   }
   while (!queue.empty()) {
     NodeType* cur_node = queue.front();
     queue.pop();
+    // note(strint): 调用对该node的处理
     JUST(Handler(cur_node));
     ForEachOutNode(cur_node, [&](NodeType* out) {
       bool is_ready = true;
       ForEachInNode(out, [&](NodeType* in) {
+        // note(strint): 该node有一个祖先还没加入队列，就先不加入队列
         if (is_ready && !has_queued[in]) { is_ready = false; }
       });
       if (is_ready && !has_queued[out]) {
@@ -609,6 +619,7 @@ Graph<NodeType, EdgeType>::MakePredicatorIsReachable() const {
                                    &NodeType::ForEachNodeOnOutEdge);
 }
 
+// note(strint): 利用src node是否是dst node的祖先来判断src是否可达dst
 template<typename NodeType, typename EdgeType>
 std::function<bool(const NodeType* src, const NodeType* dst)>
 Graph<NodeType, EdgeType>::MakePredicatorIsReachable(
@@ -617,7 +628,9 @@ Graph<NodeType, EdgeType>::MakePredicatorIsReachable(
     const std::function<void(NodeType*, const std::function<void(NodeType*)>&)>& ForEachOutNode)
     const {
   auto node2ancestor = std::make_shared<HashMap<const NodeType*, HashSet<const NodeType*>>>();
+  // note(strint): 对每个starts中的node，做拓扑序遍历
   TopoForEachNode(starts, ForEachInNode, ForEachOutNode, [&](NodeType* node) {
+    // 记录下该node的所有祖先node
     node2ancestor->emplace(node, HashSet<const NodeType*>());
     ForEachInNode(node, [&](NodeType* in_node) {
       node2ancestor->at(node).insert(in_node);
@@ -627,7 +640,9 @@ Graph<NodeType, EdgeType>::MakePredicatorIsReachable(
   });
   return [node2ancestor](const NodeType* src, const NodeType* dst) -> bool {
     const auto it = node2ancestor->find(dst);
+    // note(strint): dst node没有祖先，返回src到dst不可达
     if (it == node2ancestor->end()) { return false; }
+    // note(strint): dst的祖先有src，返回src到dst可达
     return it->second.find(src) != it->second.end();
   };
 }

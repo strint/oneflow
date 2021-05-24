@@ -131,6 +131,7 @@ bool OpNode::IsTimeShapeIdentity() const {
   return *in_shape == *op_shape;
 }
 
+// note(strint): 记录下该node的输入lbi对应的生产者node
 void OpNode::InitLbi2SourceNode() {
   for (OpEdge* edge : in_edges()) {
     for (const LogicalBlobId& lbi : edge->lbis()) {
@@ -173,8 +174,11 @@ Maybe<void> OpGraph::Init(const Job& job) {
   });
   // note(strint): 创建node之间的edge
   InitEdges();
+  // note(strint): ctrl op记录下要去控制的op
   InitProducerOpName2CtrlConsumerOpNames(job);
+  // note(strint): check dag
   CheckIsDAG();
+  // note(strint): 记录lbi的生产者node
   ForEachNode([](OpNode* node) { node->InitLbi2SourceNode(); });
   InferBlobLastUsed();
   InferTimeShape();
@@ -281,6 +285,8 @@ void OpGraph::InitEdges() {
   });
 }
 
+// note(strint): 记录下op依赖的ctrl_op(producer_op)要去控制的
+//   op列表(consumer_op)producer_op_name2ctrl_consumer_op_names_
 void OpGraph::InitProducerOpName2CtrlConsumerOpNames(const Job& job) {
   for (const auto& op_conf : job.net().op()) {
     for (const auto& ctrl_in_op_name : op_conf.ctrl_in_op_name()) {
@@ -290,12 +296,16 @@ void OpGraph::InitProducerOpName2CtrlConsumerOpNames(const Job& job) {
   }
 }
 
+// note(strint): 记录下本op的blob是否是出现在靠后的op的输入和输出中）
 void OpGraph::InferBlobLastUsed() const {
+  // note(strint): 记录所有访问过的lbi
   HashSet<LogicalBlobId> visisted_lbi;
+  // note(strint): 从最后一个op访问
   for (auto iter = op_names_.rbegin(); iter != op_names_.rend(); iter++) {
     Operator* op = op_name2op_node_.at(*iter)->mut_op();
     auto* map = op->mut_blob_last_used_signature()->mutable_bn_in_op2blob_last_used();
     const auto InferLastUsed = [&](const std::string& bn_in_op) {
+      // note(strint): 记录下本op的blob是否已经被访问过（被访问过的表示是靠后的op的输入和输出）
       (*map)[bn_in_op] = visisted_lbi.insert(op->BnInOp2Lbi(bn_in_op)).second;
     };
     for (const auto& obn : op->output_bns()) { InferLastUsed(obn); }
@@ -309,7 +319,9 @@ void OpGraph::InferTimeShape() const {
       CHECK_LT_OR_RETURN(index, op_node->input_index2producer_and_output_index_.size());
       return op_node->input_index2producer_and_output_index_.at(index).first->op().GetOpTimeShape();
     };
+    // note(strint): 从输入的生产者op中获取TimeShape，填充到输入Blob
     CHECK_JUST(op_node->mut_op()->FillInputBlobTimeShape(GetInputBlobTimeShape));
+    // note(strint): 推理本node的op的TimeShape
     CHECK_JUST(op_node->mut_op()->InferOpTimeShapeIf());
   });
 }
@@ -368,6 +380,7 @@ const OpNode* OpGraph::OpNode4OpName(const std::string& op_name) const {
   return op_node_it->second;
 }
 
+// note(strint): 推理op是否mirror、推理op的blob name的sbp
 Maybe<void> OpGraph::InferLogicalBlobDesc(const Job& job) const {
   JobParallelViewConf job_parallel_view_conf(job.job_parallel_view_conf());
   JUST(TopoForEachNodeWithErrorCaptured([&](OpNode* op_node) -> Maybe<void> {
@@ -456,6 +469,7 @@ LogicalBlobId OpGraph::GetLogicalBlobIdKey(const std::string& op_name,
   }
 }
 
+// note(strint): 对于该node所以输入的数据 or 输出ctrl关联的OpNode调用Handler
 void OpGraph::ForEachDataAndCtrlInNode(OpNode* node,
                                        const std::function<void(OpNode*)>& Handler) const {
   node->ForEachNodeOnInEdge(Handler);
@@ -464,6 +478,7 @@ void OpGraph::ForEachDataAndCtrlInNode(OpNode* node,
   }
 }
 
+// note(strint): 对于该node所以输出的数据 or 输出ctrl关联的OpNode调用Handler
 void OpGraph::ForEachDataAndCtrlOutNode(OpNode* node,
                                         const std::function<void(OpNode*)>& Handler) const {
   node->ForEachNodeOnOutEdge(Handler);
@@ -482,6 +497,9 @@ OpGraph::MakePredicatorIsOpNameDataOrCtrlReachable() const {
     if (src_node_it == op_name2op_node_.end()) { return false; }
     const auto& dst_node_it = op_name2op_node_.find(rhs);
     if (dst_node_it == op_name2op_node_.end()) { return false; }
+    // note(strint): 判断拉个op是否连通
+    //   lhs和rhs是相同的OpNode
+    //   或者src node是dst node的祖先  
     return (src_node_it->second == dst_node_it->second)
            || IsDataOrCtrlReachable(src_node_it->second, dst_node_it->second);
   };
@@ -489,13 +507,15 @@ OpGraph::MakePredicatorIsOpNameDataOrCtrlReachable() const {
 
 std::function<bool(const OpNode*, const OpNode*)> OpGraph::MakePredicatorIsDataOrCtrlReachable()
     const {
-  auto _1 = std::placeholders::_1;
-  auto _2 = std::placeholders::_2;
+  // note(strint): 这里bind了类的this指针， 使得成员函数可以像普通lambda一样传递
+  auto _1 = std::placeholders::_1;  // note(strint): OpNode
+  auto _2 = std::placeholders::_2;  // note(strint): Handle
   return MakePredicatorIsReachable(DataOrCtrlSourceNodes(),
                                    std::bind(&OpGraph::ForEachDataAndCtrlInNode, this, _1, _2),
                                    std::bind(&OpGraph::ForEachDataAndCtrlOutNode, this, _1, _2));
 }
 
+// note(strint): 返回所有的source node，即没有输入数据、没有输入ctrl的OpNode
 std::list<OpNode*> OpGraph::DataOrCtrlSourceNodes() const {
   std::list<OpNode*> ret;
   ForEachNode([&](OpNode* op_node) {

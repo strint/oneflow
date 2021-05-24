@@ -323,6 +323,7 @@ Maybe<void> CompileCurJobOnMaster(Job* job, Plan* plan, bool need_job_complete) 
   const JobDesc& job_desc = GlobalJobDesc();
   if (GlobalProcessCtx::IsThisProcessMaster()) {
     double start = GetCurTime();
+    // note(strint): 给plan创建task node
     Compiler().Compile(job, plan, need_job_complete);
 
     LOG(INFO) << "\njob_id: " << job_desc.job_id() << " , job_name: " << job_desc.job_name()
@@ -1046,10 +1047,13 @@ void MakePushJob(const std::string& job_name, const std::string& op_name,
 
 REGISTER_FUNCTION_CONFIG_DEF().Bool("__is_user_function__", true, "is user defined function");
 
+// note(strint): 编译执行计划并发布
 Maybe<void> CompileAndMergePlanOnMaster(const PbRpf<Job>& conf_jobs, Plan* plan) {
   std::vector<std::shared_ptr<Job>> jobs(conf_jobs.size());
   FOR_RANGE(int, i, 0, jobs.size()) { jobs.at(i).reset(new Job(conf_jobs.Get(i))); }
+  // ques(strint): 这个特定逻辑写在这里感觉不适合
   if (jobs.size() > 1) { CheckNonDistributeOptimizerAvailable(jobs); }
+  // note(strint): 创建ModelIO关联的Job
   if (GlobalProcessCtx::IsThisProcessMaster()) {
     HashMap<std::string, ParallelBlobConf> var_op_name2parallel_blob_conf;
     FilterOpName2ParallelBlobConf({OperatorConf::kVariableConf}, jobs,
@@ -1067,22 +1071,25 @@ Maybe<void> CompileAndMergePlanOnMaster(const PbRpf<Job>& conf_jobs, Plan* plan)
       }
     }
   }
+  // note(strint): 过滤出用户创建的job
   std::vector<std::shared_ptr<Job>> function_jobs;
   function_jobs.reserve(jobs.size());
   FOR_RANGE(int, i, 0, jobs.size()) {
     JobDesc job_desc(jobs.at(i)->job_conf(), i);
     if (job_desc.Bool("__is_user_function__")) { function_jobs.push_back(jobs.at(i)); }
   }
+
+  // note(strint): 创建push/pull job，让python numpy给user job提供数据或者从 user job 获取数据
   if (GlobalProcessCtx::IsThisProcessMaster()) {
     HashMap<std::string, ParallelBlobConf> push_op_name2parallel_blob_conf;
-    // 根据kInputConf过滤出push op
+    // note(strint): 根据kInputConf过滤出push op
     FilterOpName2ParallelBlobConf({OperatorConf::kInputConf}, function_jobs,
                                   &push_op_name2parallel_blob_conf);
     HashMap<std::string, ParallelBlobConf> pull_op_name2parallel_blob_conf;
+    // note(strint): 根据kReturnConf过滤出push op
     FilterOpName2ParallelBlobConf({OperatorConf::kReturnConf}, function_jobs,
                                   &pull_op_name2parallel_blob_conf);
     for (const auto& pair : push_op_name2parallel_blob_conf) {
-      // 创建push job，让python numpy给user job提供数据
       auto push_job = std::make_shared<Job>();
       MakePushJob(std::string("System-Push-") + pair.first, pair.first, pair.second,
                   push_job.get());
@@ -1095,12 +1102,15 @@ Maybe<void> CompileAndMergePlanOnMaster(const PbRpf<Job>& conf_jobs, Plan* plan)
       jobs.emplace_back(pull_job);
     }
   }
+  // note(strint): 创建执行计划
   std::vector<Plan> sub_plans(jobs.size());
   FOR_RANGE(int64_t, i, 0, jobs.size()) {
     AddJobName2JobId(jobs.at(i)->job_conf().job_name(), i);
     auto scope = std::make_unique<GlobalJobDescScope>(jobs.at(i)->job_conf(), i);
+    // note(strint): 给每个job创建一个子plan
     JUST(CompileCurJobOnMaster(jobs.at(i).get(), &sub_plans.at(i), true));
   }
+  // note(strint): 合并各个子plan
   if (GlobalProcessCtx::IsThisProcessMaster()) {
     MergeSubPlanWithoutGenNetTopo(plan, sub_plans);
     InterJobMemSharingUtil::MergeMemReusedChunkBetweenUserJobs(function_jobs, plan);
@@ -1123,8 +1133,10 @@ Maybe<void> CompileAndMergePlanOnMaster(const PbRpf<Job>& conf_jobs, Plan* plan)
       TeePersistentLogStream::Create("merged_plan")->Write(*plan);
       PlanUtil::ToDotFile(*plan, "/dot/merged_plan.dot");
     }
+    // note(strint): master process push plan到rpc
     PushPlan("merged_plan", *plan);
   } else {
+    // note(strint): 其它 process pull plan
     PullPlan("merged_plan", plan);
     if (Global<ResourceDesc, ForSession>::Get()->enable_debug_mode()) {
       TeePersistentLogStream::Create("merged_plan")->Write(*plan);
@@ -1136,6 +1148,10 @@ Maybe<void> CompileAndMergePlanOnMaster(const PbRpf<Job>& conf_jobs, Plan* plan)
 
 }  // namespace
 
+// note(strint): oneflow runtime 启动
+//   输入为job_set
+//   编译逻辑图为执行计划plan_
+//   创建Runtime实例
 Maybe<void> Oneflow::Init(const oneflow::JobSet& job_set) {
   OF_PROFILER_RANGE_GUARD("Oneflow::Init");
   // Runtime

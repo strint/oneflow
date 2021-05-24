@@ -42,11 +42,11 @@ import inspect
 
 def Compile(session, function_desc, config_proto):
     # note(strint): lazy使用的
-    #         一个新Job的创建
+    #   一个新Job的创建
     with InterpretScope(session, function_desc, config_proto):
-        # note(strint): 构建了job和逻辑图
+        # note(strint): 构建了job
         _CompileJob(session, function_desc)
-        # note(strint): Complete中做了逻辑图优化
+        # note(strint): Complete中做了逻辑图各个pass的优化
         oneflow_api.CurJobBuildAndInferCtx_Complete()
 
 
@@ -107,8 +107,8 @@ def _SessionInitialScope(session, scope):
 
 
 # note(strint): 编译job func
-#         创建job输入输出的blob def
-#         运行func进行把operator创建和infer好，并加入到当前Job中
+#   创建job输入输出的blob def
+#   运行func进行把operator创建和infer好，并加入到当前Job中
 def _CompileJob(session, function_desc):
     func = function_desc.job_func
     # note(strint): inspect从job_func获取的signature
