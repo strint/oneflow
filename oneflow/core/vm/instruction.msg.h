@@ -65,7 +65,7 @@ OBJECT_MSG_BEGIN(InstructionMsg);
   OF_PUBLIC ObjectMsgPtr<InstructionMsg> add_mut2_operand(ObjectId logical_object_id);
   OF_PUBLIC ObjectMsgPtr<InstructionMsg> add_mut2_operand(ObjectId logical_object_id, const SoleMirroredObject&);
   OF_PUBLIC ObjectMsgPtr<InstructionMsg> add_mut2_operand(ObjectId logical_object_id, const AllMirroredObject&);
-  OF_PUBLIC ObjectMsgPtr<InstructionMsg> add_del_object_operand(ObjectId logical_object_id);
+  OF_PUBLIC ObjectMsgPtr<InstructionMsg> add_del_operand(ObjectId logical_object_id);
   OF_PUBLIC const std::vector<FlatMsg<InstructionOperand>>& operand() const {
     return operand_list().operand();
   }
@@ -82,6 +82,7 @@ OBJECT_MSG_BEGIN(InstructionMsg);
   // instr_type_name is a necessary reduandant field for method ToProto
   OBJECT_MSG_DEFINE_STRUCT(std::string, instr_type_name);
   OBJECT_MSG_DEFINE_OPTIONAL(int64_t, parallel_desc_symbol_id);
+  OBJECT_MSG_DEFINE_STRUCT(std::shared_ptr<const ParallelDesc>, parallel_desc);
   OBJECT_MSG_DEFINE_OPTIONAL(InstructionOperandList, operand_list);
   OBJECT_MSG_DEFINE_STRUCT(std::shared_ptr<PhyInstrOperand>, phy_instr_operand);
 
@@ -124,9 +125,10 @@ class Stream;
 // clang-format off
 OBJECT_MSG_BEGIN(Instruction);
   // methods
-  OF_PUBLIC void __Init__(InstructionMsg* instr_msg, Stream* stream, const std::shared_ptr<ParallelDesc>& parallel_desc);
+  OF_PUBLIC void __Init__(InstructionMsg* instr_msg, Stream* stream, const std::shared_ptr<const ParallelDesc>& parallel_desc);
   OF_PUBLIC void __Delete__();
   OF_PUBLIC bool Done() const;
+  OF_PUBLIC void set_has_event_record(bool val);
   OF_PUBLIC const StreamType& stream_type() const;
 
   OF_PUBLIC template<OperandMemZoneModifier mem_zone_modifier>
@@ -216,7 +218,7 @@ OBJECT_MSG_BEGIN(Instruction);
   // fields
   OBJECT_MSG_DEFINE_FLAT_MSG(InstructionStatusBuffer, status_buffer);
   OBJECT_MSG_DEFINE_OPTIONAL(InstructionMsg, instr_msg);
-  OBJECT_MSG_DEFINE_STRUCT(std::shared_ptr<ParallelDesc>, parallel_desc);
+  OBJECT_MSG_DEFINE_STRUCT(std::shared_ptr<const ParallelDesc>, parallel_desc);
   OBJECT_MSG_DEFINE_PTR(Stream, stream); 
 
   // links
@@ -230,6 +232,7 @@ OBJECT_MSG_BEGIN(Instruction);
   OBJECT_MSG_DEFINE_SKIPLIST_HEAD(InstructionEdge, src_instruction, in_edges);
   OBJECT_MSG_DEFINE_SKIPLIST_HEAD(InstructionEdge, dst_instruction, out_edges);
   OBJECT_MSG_DEFINE_SKIPLIST_HEAD(RwMutexedObjectAccess, mirrored_object_id, mirrored_object_id2access);
+  OBJECT_MSG_DEFINE_LIST_HEAD(RwMutexedObjectAccess, instruction_access_link, access_list);
 OBJECT_MSG_END(Instruction);
 // clang-format on
 

@@ -497,7 +497,7 @@ Maybe<OpAttribute> JobBuildAndInferCtx::AddAndInferMirroredOp(const OperatorConf
   CHECK_OR_RETURN(op_conf.has_scope_symbol_id());
   const auto& scope = Global<symbol::Storage<Scope>>::Get()->Get(op_conf.scope_symbol_id());
   const auto* job_desc = JUST(scope.job_desc());
-  const auto& parallel_desc = JUST(scope.GetParallelDesc(op_conf));
+  const auto& parallel_desc = *JUST(scope.GetParallelDesc(op_conf));
   auto op = ConstructOp(op_conf, parallel_desc.device_type());
   JUST(CheckAllInputsConvertableToMirroredBlob(*op));
   int32_t parallel_num = parallel_desc.parallel_num();
@@ -550,7 +550,7 @@ Maybe<const LogicalBlobId*> JobBuildAndInferCtx::GetSubLbi(int64_t scope_symbol_
 Maybe<OpAttribute> JobBuildAndInferCtx::AddAndInferConsistentOp(const OperatorConf& op_conf) {
   CHECK_OR_RETURN(op_conf.has_scope_symbol_id());
   const auto& scope = Global<symbol::Storage<Scope>>::Get()->Get(op_conf.scope_symbol_id());
-  const auto& parallel_desc = JUST(scope.GetParallelDesc(op_conf));
+  const auto& parallel_desc = *JUST(scope.GetParallelDesc(op_conf));
   const auto* job_desc = JUST(scope.job_desc());
   return AddAndInferOp(op_conf, parallel_desc.parallel_conf(), job_desc, false);
 }
@@ -776,6 +776,7 @@ Maybe<const ParallelDesc*> JobBuildAndInferCtx::MirroredBlobGetParallelDescFromP
 Maybe<void> JobBuildAndInferCtx::CheckJob() const {
   JUST(CheckPlacement());
   JUST(CheckJobConf());
+  JUST(CheckOpScope());
   return Maybe<void>::Ok();
 }
 
@@ -808,6 +809,18 @@ Maybe<void> JobBuildAndInferCtx::CheckPlacement() const {
 Maybe<void> JobBuildAndInferCtx::CheckJobConf() const {
   if (job_->job_conf().job_type_case() == JobConfigProto::JOB_TYPE_NOT_SET) {
     return Error::JobTypeNotSetError() << "job_type not set, please set predict_conf or train_conf";
+  }
+  return Maybe<void>::Ok();
+}
+
+Maybe<void> JobBuildAndInferCtx::CheckOpScope() const {
+  for (const OperatorConf& op_conf : job_->net().op()) {
+    if (!op_conf.has_scope_symbol_id()) {
+      // NOTE(chengcheng): LOG(WARNING) instead of CHECK_OR_RETURN() for transition
+      LOG(WARNING) << " ERROR! op_name: " << op_conf.name()
+                   << " has NOT set scope(scope_symbol_id) in job: " << job_->job_conf().job_name()
+                   << " net. \n op_conf = " << op_conf.DebugString();
+    }
   }
   return Maybe<void>::Ok();
 }
@@ -978,9 +991,12 @@ Maybe<void> LazyJobBuildAndInferCtx::Complete() {
     JUST(DoPass("SetDefaultVariableConf"));
     // note(strint): train & predict 执行, 创建job输入/输入关联的op
     JUST(DoPass("AddInputOutputOpsPass"));
+    JUST(DoPass("NormalizationExponentialAverageAutoTickPass"));
+    JUST(DoPass("GradientAccumulationRewritePass"));
 #ifdef WITH_CUDA
     // note(strint): train or predict 且打开开关执行，自动混合精度训练需要的op调整和cast op插入
     JUST(DoPass("AutoMixedPrecision"));
+    JUST(DoPass("PruneAmpWhiteIdentityOpPass"));
 #endif
     // note(strint): train且需要打开开关执行，支持optimizer state切分执行的，对应ZeRO stage 1
     JUST(DoPass("OptimizerPlacementOptimizationPass"));
@@ -1002,6 +1018,9 @@ Maybe<void> LazyJobBuildAndInferCtx::Complete() {
     JUST(DoPass("CudnnFusedNormalizationAddReluPass"));
     JUST(DoPass("PruneCastToStaticShapeOpsPass"));
     JUST(DoPass("FuseAddToOutputPass"));
+    // run this pass again to fuse ops created in the first run.
+    // TODO(guoran): loop multiple times inside the pass
+    JUST(DoPass("FuseAddToOutputPass"));
     JUST(DoPass("IndexedSlicesOptimizerRewritePass"));
     JUST(DoPass("SplitSparseSoftmaxCrossEntropyOpPass"));
     JUST(DoPass("DoParallelCastBeforeWideningTypeCast"));
@@ -1009,9 +1028,11 @@ Maybe<void> LazyJobBuildAndInferCtx::Complete() {
     JUST(DoPass("FuseCastScalePass"));
     JUST(DoPass("PruneParallelCastOpsPass"));
     JUST(DoPass("FuseUpdateOpsPass"));
+    JUST(DoPass("PipelineBufferPass"));
     JUST(DoPass("DumpVariableInfoPass"));
   }
   JUST(DoPass("DumpBlobParallelConfPass"));
+  JUST(CheckJob());
   return Maybe<void>::Ok();
 }
 
@@ -1047,7 +1068,7 @@ void JobBuildAndInferCtx::InferBlobBackwardSignature(Operator* op) {
 void JobBuildAndInferCtx::InferBlobBackwardSignature(
     const Operator& op, std::function<bool(const LogicalBlobId&)>* IsLbiBackwardUsed) {
   const bool is_train = job().job_conf().has_train_conf();
-  if (is_train) {
+  if (!is_train) {
     *IsLbiBackwardUsed = [](const LogicalBlobId&) { return false; };
     return;
   }

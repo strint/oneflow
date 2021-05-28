@@ -82,7 +82,8 @@ void CollectAllCheckpointingOpsInForwardPass(
   //   in the future, we need to support the recomputation version of batch_norm which do NOT
   //   update forward variables.
   HashSet<std::string> ignore_op_type_names = {"normalization", "normalization_add_relu",
-                                               "cudnn_fused_normalization_add_relu"};
+                                               "cudnn_fused_normalization_add_relu", "repeat",
+                                               "unpack"};
   op_graph.ForEachNode([&](const OpNode* op_node) {
     const OperatorConf& op_conf = op_node->op().op_conf();
     // 跳过不包含user_conf以及ignore_op_type_names指定的op_node
