@@ -30,6 +30,7 @@ class DumpBlobParallelConfPass final : public JobPass {
   bool IsEnabled(const JobPassCtx& ctx) const { return true; }
 
   Maybe<void> Apply(const OpGraph& op_graph, Job* job) const {
+    // note(strint): 把op_graph中的信息写到job中
     op_graph.DumpLogicalBlobDesc(job);
     op_graph.DumpArgSignature(job);
     op_graph.DumpParallelDistributionSignature(job);
