@@ -42,7 +42,7 @@ OBJECT_MSG_BEGIN(VirtualMachine);
   OF_PUBLIC void Receive(ObjectMsgPtr<InstructionMsg>&& instruction_msg);
   OF_PUBLIC void Schedule();
   OF_PUBLIC bool Empty() const;
-  OF_PUBLIC Maybe<ParallelDesc> GetInstructionParallelDesc(const InstructionMsg&);
+  OF_PUBLIC Maybe<const ParallelDesc> GetInstructionParallelDesc(const InstructionMsg&);
   OF_PUBLIC MirroredObject* MutMirroredObject(int64_t logical_object_id, int64_t global_device_id);
   OF_PUBLIC const MirroredObject* GetMirroredObject(int64_t logical_object_id,
                                                  int64_t global_device_id);
@@ -57,18 +57,19 @@ OBJECT_MSG_BEGIN(VirtualMachine);
   OBJECT_MSG_DEFINE_STRUCT(Range, machine_id_range);
   OBJECT_MSG_DEFINE_PTR(ObjectMsgAllocator, vm_thread_only_allocator);
 
-  //links
+  // heads
+  OBJECT_MSG_DEFINE_LIST_HEAD(Stream, active_stream_link, active_stream_list);
+  OBJECT_MSG_DEFINE_LIST_HEAD(ThreadCtx, thread_ctx_link, thread_ctx_list);
+  OBJECT_MSG_DEFINE_SKIPLIST_HEAD(StreamRtDesc, stream_type_id, stream_type_id2stream_rt_desc);
+  OBJECT_MSG_DEFINE_MAP_HEAD(LogicalObject, logical_object_id, id2logical_object);
+  OBJECT_MSG_DEFINE_LIST_HEAD(LogicalObject, delete_link, delete_logical_object_list);
+
   OBJECT_MSG_DEFINE_MUTEXED_LIST_HEAD(InstructionMsg, instr_msg_link, pending_msg_list);
   OBJECT_MSG_DEFINE_LIST_HEAD(Instruction, instruction_link, waiting_instruction_list);
   OBJECT_MSG_DEFINE_LIST_HEAD(Instruction, instruction_link, ready_instruction_list);
   OBJECT_MSG_DEFINE_LIST_HEAD(Instruction, vm_stat_running_instruction_link,
                               vm_stat_running_instruction_list);
-  OBJECT_MSG_DEFINE_LIST_HEAD(Instruction, front_seq_infer_instr_link, front_seq_infer_instr_list);
   OBJECT_MSG_DEFINE_LIST_HEAD(Instruction, front_seq_compute_instr_link, front_seq_compute_instr_list);
-  OBJECT_MSG_DEFINE_LIST_HEAD(Stream, active_stream_link, active_stream_list);
-  OBJECT_MSG_DEFINE_LIST_HEAD(ThreadCtx, thread_ctx_link, thread_ctx_list);
-  OBJECT_MSG_DEFINE_SKIPLIST_HEAD(StreamRtDesc, stream_type_id, stream_type_id2stream_rt_desc);
-  OBJECT_MSG_DEFINE_MAP_HEAD(LogicalObject, logical_object_id, id2logical_object);
 
   // methods
  private:
@@ -88,7 +89,7 @@ OBJECT_MSG_BEGIN(VirtualMachine);
                             /*out*/ ReadyInstructionList* ready_instruction_list);
   void TryReleaseFinishedInstructions(
           Stream* stream, /*out*/ ReadyInstructionList* ready_instruction_list);
-  void FilterAndRunSourceInstructions(TmpPendingInstrMsgList* instr_msg_list);
+  void FilterAndRunInstructionsInAdvance(TmpPendingInstrMsgList* instr_msg_list);
   void MakeInstructions(TmpPendingInstrMsgList*, /*out*/ NewInstructionList* ret_instruction_list);
   template<int64_t (*TransformLogicalObjectId)(int64_t), typename DoEachT>
   void ForEachMirroredObject(Id2LogicalObject* id2logical_object,
@@ -114,13 +115,15 @@ OBJECT_MSG_BEGIN(VirtualMachine);
                                 Id2LogicalObject* id2logical_object,
                                 const ModifiedOperand<kTypeAndDataMutableModifier, mem_zone_modifier>& mut2_operand,
                                 int64_t global_device_id, const DoEachT& DoEach);
-  enum OperandAccessType {
-    kMutableOperandAccess = 0,
-    kConstOperandAccess
-  };
+
+  template<OperandMemZoneModifier mem_zone_modifier, typename DoEachT>
+  void ForEachMutMirroredObject(const InterpretType interpret_type,
+                                Id2LogicalObject* id2logical_object,
+                                const ModifiedOperand<kDeleteModifier, mem_zone_modifier>& mut2_operand,
+                                int64_t global_device_id, const DoEachT& DoEach);
 
   void ConnectInstruction(Instruction* src_instruction, Instruction* dst_instruction);
-  void ConsumeMirroredObject(OperandAccessType access_type, MirroredObject* mirrored_object,
+  RwMutexedObjectAccess* ConsumeMirroredObject(OperandAccessType access_type, MirroredObject* mirrored_object,
                              Instruction* instrution);
   void ConsumeMirroredObjects(Id2LogicalObject* id2logical_object,
                               NewInstructionList* new_instruction_list);
@@ -131,6 +134,8 @@ OBJECT_MSG_BEGIN(VirtualMachine);
   template<typename ReadyList, typename IsEdgeReadyT>
   void TryMoveWaitingToReady(Instruction* instruction, ReadyList* ready_list,
                              const IsEdgeReadyT& IsEdgeReady);
+
+  void TryDeleteLogicalObjects();
 
 OBJECT_MSG_END(VirtualMachine);
 // clang-format on
